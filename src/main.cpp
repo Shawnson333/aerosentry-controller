@@ -1,91 +1,70 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include <esp_now.h>
-#include <SD.h>
-#include <SPI.h>
-#include "driver/i2c.h"
-#include "config.h"
+#include <Wire.h>
 
-// --- Relay Control State ---
-static uint8_t relayState = 0x00;
+#define XL_ADDR     0x20
+#define REG_OUTPUT  0x02
+#define REG_CONFIG  0x06
 
-esp_err_t xlWrite(uint8_t reg, uint8_t value) {
-    uint8_t buf[2] = {reg, value};
-    return i2c_master_write_to_device(I2C_PORT, XL_ADDR, buf, 2, pdMS_TO_TICKS(100));
-}
+// Channel Mappings based on verified hardware response:
+// A0 -> Unused / Unrouted
+// A1 -> Pump
+// A2 -> Heater
+// A3 -> Fan
 
-void applyRelayState() {
-    xlWrite(REG_OUTPUT, relayState);
+uint8_t currentRelayState = 0x00;
+
+void xlWrite(uint8_t reg, uint8_t value) {
+    Wire.beginTransmission(XL_ADDR);
+    Wire.write(reg);
+    Wire.write(value);
+    Wire.endTransmission();
 }
 
 void setRelay(uint8_t bit, bool on) {
-    if (on) relayState |=  (1 << bit);
-    else    relayState &= ~(1 << bit);
-    applyRelayState();
-}
-
-void allRelaysOff() {
-    relayState = 0x00;
-    applyRelayState();
-}
-
-// --- Sensor Data Struct (Single Wired Remote Node) ---
-typedef struct {
-    float tempTo;
-    float humidityTo;
-    float tempFrom;
-    float humidityFrom;
-    uint8_t batteryPct;
-} sensor_data_t;
-
-static float toRH = 0, fromRH = 0;
-static bool sensorValid = false;
-
-// ESP-NOW Receive Callback
-void onDataRecv(const esp_now_recv_info *info, const uint8_t *data, int len) {
-    if (len == sizeof(sensor_data_t)) {
-        sensor_data_t s;
-        memcpy(&s, data, sizeof(s));
-        toRH = s.humidityTo;
-        fromRH = s.humidityFrom;
-        sensorValid = true;
-        Serial.printf("Sensor Update -> To: %.1f%%RH | From: %.1f%%RH\n", toRH, fromRH);
+    if (on) {
+        currentRelayState |= (1 << bit);
+    } else {
+        currentRelayState &= ~(1 << bit);
     }
-}
-
-void setupI2C() {
-    i2c_config_t conf = {};
-    conf.mode = I2C_MODE_MASTER;
-    conf.sda_io_num = I2C_SDA_PIN;
-    conf.scl_io_num = I2C_SCL_PIN;
-    conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-    conf.master.clk_speed = 100000;
-    i2c_param_config(I2C_PORT, &conf);
-    i2c_driver_install(I2C_PORT, conf.mode, 0, 0, 0);
-
-    xlWrite(REG_CONFIG, 0x00); // Set all expander pins to output
-    allRelaysOff();
+    xlWrite(REG_OUTPUT, currentRelayState);
+    Serial.printf("Relay State Register: 0x%02X\n", currentRelayState);
 }
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("AeroSentry Controller Booting...");
+    delay(1000);
+    Serial.println("\n--- AeroSentry Core Controller Initializing ---");
 
-    setupI2C();
+    // Initialize I2C for the expander
+    Wire.begin(8, 9);
 
-    // Initialize Wi-Fi & ESP-NOW for wireless sensor telemetry
-    WiFi.mode(WIFI_STA);
-    if (esp_now_init() != ESP_OK) {
-        Serial.println("ESP-NOW Init Failed!");
-        return;
-    }
-    esp_now_register_recv_cb(onDataRecv);
+    // Set Port 0 configuration to outputs (0x00)
+    xlWrite(REG_CONFIG, 0x00);
+    
+    // Start with all relays OFF
+    currentRelayState = 0x00;
+    xlWrite(REG_OUTPUT, currentRelayState);
 
-    Serial.println("System Ready.");
+    Serial.println("System ready using verified channels A1 (Pump), A2 (Heater), A3 (Fan).");
 }
 
 void loop() {
-    // Main loop task management
-    delay(100);
+    // Example test sequence for your 3 active channels:
+    
+    Serial.println("Turning Pump (A1) ON...");
+    setRelay(1, true);
+    delay(3000);
+
+    Serial.println("Turning Heater (A2) ON...");
+    setRelay(2, true);
+    delay(3000);
+
+    Serial.println("Turning Fan (A3) ON...");
+    setRelay(3, true);
+    delay(3000);
+
+    Serial.println("Shutting all channels OFF...");
+    currentRelayState = 0x00;
+    xlWrite(REG_OUTPUT, currentRelayState);
+    delay(5000);
 }
