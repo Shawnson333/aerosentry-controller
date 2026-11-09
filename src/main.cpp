@@ -1,70 +1,108 @@
+/* ========================================================================
+   AEROSENTRY CONTROLLER — Main entry point
+   Waveshare ESP32-S3 4.3-inch Type B (800x480) + LVGL 8.3
+   ======================================================================== */
+
 #include <Arduino.h>
 #include <Wire.h>
 
-#define XL_ADDR     0x20
-#define REG_OUTPUT  0x02
-#define REG_CONFIG  0x06
+#include "config.h"
+#include "relay.h"
+#include "sensors.h"
+#include "statemachine.h"
+#include "logging.h"
+#include "system_clock.h"
+#include "ui.h"
+#include "lvgl_v8_port.h"
 
-// Channel Mappings based on verified hardware response:
-// A0 -> Unused / Unrouted
-// A1 -> Pump
-// A2 -> Heater
-// A3 -> Fan
+static bool lvglReady = false;
 
-uint8_t currentRelayState = 0x00;
-
-void xlWrite(uint8_t reg, uint8_t value) {
-    Wire.beginTransmission(XL_ADDR);
-    Wire.write(reg);
-    Wire.write(value);
-    Wire.endTransmission();
-}
-
-void setRelay(uint8_t bit, bool on) {
-    if (on) {
-        currentRelayState |= (1 << bit);
+static void initializeDisplay() {
+    Serial.println(F("Initializing Waveshare display and touch..."));
+    lvglReady = lvgl_port_init();
+    if (lvglReady) {
+        Serial.printf("Display ready: %d x %d\n", DISPLAY_WIDTH, DISPLAY_HEIGHT);
     } else {
-        currentRelayState &= ~(1 << bit);
+        Serial.println(F("ERROR: Display/LVGL initialization failed"));
     }
-    xlWrite(REG_OUTPUT, currentRelayState);
-    Serial.printf("Relay State Register: 0x%02X\n", currentRelayState);
 }
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("\n--- AeroSentry Core Controller Initializing ---");
+    Serial.println(F("\n=== AeroSentry Controller Starting ==="));
 
-    // Initialize I2C for the expander
-    Wire.begin(8, 9);
+    // Shared I2C: GT911 touch + Waveshare CH422G (+ relay board later).
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    Serial.println(F("I2C bus initialized (GPIO 8/9)"));
 
-    // Set Port 0 configuration to outputs (0x00)
-    xlWrite(REG_CONFIG, 0x00);
-    
-    // Start with all relays OFF
-    currentRelayState = 0x00;
-    xlWrite(REG_OUTPUT, currentRelayState);
+    // Disabled in config.h until the external relay board address is known.
+    if (relay.begin()) {
+        Serial.println(F("Relay driver OK - all relays OFF"));
+    } else {
+        Serial.println(F("Relay driver disabled/unavailable; no relay writes made"));
+    }
 
-    Serial.println("System ready using verified channels A1 (Pump), A2 (Heater), A3 (Fan).");
+    initializeDisplay();
+
+    if (sensorsBegin()) {
+        Serial.println(F("Sensor receiver ready"));
+    } else {
+        Serial.println(F("Sensor receiver not available yet (ESP-NOW stub)"));
+    }
+
+    if (logger.begin()) {
+        Serial.println(F("SD logger ready"));
+    } else {
+        Serial.println(F("SD logger not available yet (stub)"));
+    }
+
+    stateMachine.begin();
+    systemClockBegin();
+    Serial.println(F("State machine ready - Idle mode"));
+    Serial.println(F("Rules: purge/manual watch To-Engine; auto watches both; recharge ignores 40%"));
+
+    if (lvglReady) {
+        uiBegin();
+        Serial.println(F("UI started - Main screen shown"));
+    } else {
+        Serial.println(F("UI skipped because display initialization failed"));
+    }
+
+    Serial.println(F("=== Setup complete ==="));
 }
 
 void loop() {
-    // Example test sequence for your 3 active channels:
-    
-    Serial.println("Turning Pump (A1) ON...");
-    setRelay(1, true);
-    delay(3000);
+    sensorsUpdate();
+    stateMachine.update();
 
-    Serial.println("Turning Heater (A2) ON...");
-    setRelay(2, true);
-    delay(3000);
+    if (lvglReady) {
+        static uint32_t lastUiTick = 0;
+        if (millis() - lastUiTick >= 1000UL) {
+            char dateTime[24];
+            systemClockFormat(dateTime, sizeof(dateTime));
+            uiUpdateDateTime(dateTime);
+            uiUpdateStatus(stateMachine.statusText());
+            uiUpdateSensors(sensors.toEngineRH, sensors.fromEngineRH,
+                            toEngineReady(), fromEngineReady());
+            lastUiTick = millis();
+        }
 
-    Serial.println("Turning Fan (A3) ON...");
-    setRelay(3, true);
-    delay(3000);
+        static SystemMode lastMode = SystemMode::IDLE;
+        const SystemMode currentMode = stateMachine.mode();
+        if (currentMode != lastMode) {
+            uiUpdateMode(currentMode);
+            uiSetRunning(stateMachine.isRunning());
+            uiUpdateStatus(stateMachine.statusText());
+            lastMode = currentMode;
+        }
 
-    Serial.println("Shutting all channels OFF...");
-    currentRelayState = 0x00;
-    xlWrite(REG_OUTPUT, currentRelayState);
-    delay(5000);
+        const char* stopMessage = stateMachine.takeStopMessage();
+        if (stopMessage != nullptr) {
+            uiShowWarning(stopMessage, [](lv_event_t*) { uiShowMain(); }, "OK");
+        }
+    }
+
+    uiLoop();
+    delay(5);
 }
