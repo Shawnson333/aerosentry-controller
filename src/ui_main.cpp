@@ -16,6 +16,7 @@ static lv_obj_t* modeLabel = nullptr;
 static lv_obj_t* statusLabel = nullptr;
 static lv_obj_t* toEngineLabel = nullptr;
 static lv_obj_t* fromEngineLabel = nullptr;
+static lv_obj_t* outputLabel = nullptr;
 static lv_obj_t* btnPurge = nullptr;
 static lv_obj_t* btnDryer = nullptr;
 static lv_obj_t* btnRecharge = nullptr;
@@ -92,6 +93,12 @@ void uiShowMain() {
         lv_obj_set_style_text_color(fromEngineLabel, lv_color_hex(UI_TEXT_COLOR), 0);
         lv_obj_set_style_text_font(fromEngineLabel, &lv_font_montserrat_28, 0);
 
+        outputLabel = lv_label_create(mainScreen);
+        lv_label_set_text(outputLabel, "K2 pump off   K3 heat off   K4 fan off   K5 AUX off");
+        lv_obj_align(outputLabel, LV_ALIGN_TOP_MID, 0, 285);
+        lv_obj_set_style_text_color(outputLabel, lv_color_hex(UI_TEXT_COLOR), 0);
+        lv_obj_set_style_text_font(outputLabel, &lv_font_montserrat_20, 0);
+
         int16_t btnW = 230, btnH = 100, gap = 20;
         int16_t startX = (DISPLAY_WIDTH - (btnW * 3 + gap * 2)) / 2;
 
@@ -138,6 +145,24 @@ void uiUpdateStatus(const char* text) {
         lv_label_set_text(statusLabel, text);
         lv_obj_align(statusLabel, LV_ALIGN_TOP_MID, 0, 198);
     }
+}
+
+void uiUpdateOutputs(bool pumpOn, bool heaterOn, bool fanOn, float chipC) {
+    if (outputLabel == nullptr) return;
+    char buf[96];
+    if (chipC == chipC) {
+        snprintf(buf, sizeof(buf), "K2 pump %s   K3 heat %s   K4 fan %s   chip %.0fC",
+                 pumpOn ? "ON" : "off",
+                 heaterOn ? "ON" : "off",
+                 fanOn ? "ON" : "off",
+                 chipC);
+    } else {
+        snprintf(buf, sizeof(buf), "K2 pump %s   K3 heat %s   K4 fan %s   K5 AUX off",
+                 pumpOn ? "ON" : "off",
+                 heaterOn ? "ON" : "off",
+                 fanOn ? "ON" : "off");
+    }
+    lv_label_set_text(outputLabel, buf);
 }
 
 void uiUpdateSensors(float toRH, float fromRH, bool toValid, bool fromValid) {

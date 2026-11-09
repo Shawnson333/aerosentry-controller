@@ -65,6 +65,8 @@ public:
     bool isRunning() const { return _mode != SystemMode::IDLE; }
     bool pumpOn() const { return _pumpOn; }
     bool heaterOn() const { return _heaterOn; }
+    bool fanOn() const { return _fanOn; }
+    float chipTempC() const { return _chipTempC; }
 
     /* Phase line for the main screen. Valid until the next call. */
     const char* statusText() const;
@@ -93,8 +95,12 @@ private:
     bool _saturationTiming;
     bool _pumpOn;
     bool _heaterOn;
+    bool _fanOn;
     bool _appliedPump;
     bool _appliedHeater;
+    bool _appliedFan;
+    bool _chipHot;
+    float _chipTempC;
     uint8_t _rechargeGoodCycles;
 
     bool handleCommand();
@@ -107,6 +113,8 @@ private:
     void checkSaturation();
     void resetSaturation();
     void applyOutputs();
+    void updateFan();
+    void regulateHeater();
     void maybeLog();
     bool sensorsOkForMode() const;
     void setManualPhase(ManualPhase phase);

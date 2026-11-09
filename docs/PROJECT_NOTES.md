@@ -27,21 +27,44 @@ The current initialization follows the public XL9535 example at https://github.c
 2. Register 0x02 <= 0x00, 0x00: both output ports off. This board is active-high.
 3. Register 0x06 <= 0x00, 0x00: both ports are outputs.
 
-K1's location is not confirmed. The working theory is that K2-K8 are on port 0 while K1 is on port 1 or otherwise mapped differently. Test that only after the all-off write is confirmed on the board. No relay test runs at boot.
+K1 stays unused. K2 is the pump, K3 the heater, K4 the case fan, and K5 AUX stays off. K6-K8 stay reserved. The driver rejects K1 and K6-K8. K2 was confirmed on P0.1. K3-K5 follow that order and still need a click test.
+
+K4 runs while the pump is on, for the entire recharge cycle, and also when the Waveshare chip temperature stays at or above 65C. It turns off at 55C if the pump is off and recharge is not running. That chip reading is the ESP32-S3 die, not the air in the case, so the thresholds are a starting guess.
+
+During recharge the heater holds 240F. It turns off at 240F and back on at 235F so the relay does not chatter. The pump still waits for the first time the chamber reaches 240F, then pulses.
 
 The XL9535 itself needs no firmware. The USB-C port's purpose is unconfirmed until it is connected or the exact board documentation is found. P1 and J3 may be parallel I2C connections, but that is not confirmed for this board.
 - The saturation hard-stop applies outside Recharge only.
 - Missing sensor data must produce a warning, not a brief mode entry followed by an unexplained return to Idle.
 
+## Known-good XIAO firmware
+
+Saved as `firmware/xiao-sensor-known-good.bin`. Flashed to the XIAO ESP32-C3 at MAC `AC:27:6E:FC:EF:A8` on 2026-04-09 and confirmed on the bench.
+
+Why the wiring is split:
+
+- The ESP32-C3 has one I2C controller, so both SHT31 boards cannot share a bus if they use the same address.
+- To-Engine is D4 SDA / D5 SCL. From-Engine is D8 SDA / D9 SCL. Firmware switches the controller between those pin pairs.
+- Both boards were left at the factory ADDR pin and both answered at `0x44`. Do not jumper ADDR unless a board stops answering. The firmware also accepts `0x45`.
+- Readings at the bench were about 50% on both sensors, which is a plausible room value. Packets went out on ESP-NOW channel 1 with flags `0x03`.
+- The chamber flag stays clear until the 10k from D1 to GND is installed. A missing pulldown can look like a real temperature, so Recharge stays blocked on purpose.
+
+## Waveshare touch and screen
+
+GT911 reset is EXIO1 on the onboard CH422G, not a direct ESP32 pin. INT is GPIO 4. Holding INT low through that reset selects address `0x5D`. If that reset is skipped, the touch controller does not ACK and every button is dead while the picture still updates.
+
+The clock has no seconds, so its text changes once a minute. That small RGB update can tear. Those small copies wait for the end of a frame before they are written.
+
 ## XIAO wiring
 
 No extra I2C pull-ups. The SHT31 modules already have them. Power both modules from the XIAO 3V3 pin, not 5V, so their pull-ups cannot put 5V on the XIAO pins.
 
-- D8 SDA, D9 SCL, shared by both SHT31 boards.
-- To-Engine ADDR tied to GND (address 0x44).
-- From-Engine ADDR tied to 3V3 (address 0x45). Do not leave ADDR floating.
+- D4 SDA and D5 SCL: To-Engine SHT31 only.
+- D8 SDA and D9 SCL: From-Engine SHT31 only.
+- Leave both ADDR pins as they came. On the bench that was address 0x44 on both buses. A jumper is not required.
 - Chamber thermistor: one lead to 3V3, the other lead to D1. A separate 10k resistor goes from D1 to GND. A 100nF capacitor from D1 to GND is optional but helps on the 1m cable.
 - The thermistor needs that external resistor. The XIAO's internal pull-up is not accurate enough and must stay off.
+- Until the 10k is installed, the XIAO still broadcasts both humidity sensors but never marks the chamber reading valid. Recharge stays blocked. Purge, manual, and auto can be tested from the humidity sensors.
 
 ## V1 boundaries
 

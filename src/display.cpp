@@ -9,18 +9,72 @@
 static esp_lcd_panel_handle_t lcdPanel = nullptr;
 static uint8_t touchAddress = 0;
 static bool touchReady = false;
+static uint8_t expanderOutputs = 0xFF;
+static volatile bool frameDone = false;
+
+static bool IRAM_ATTR onFrameDone(esp_lcd_panel_handle_t panel,
+                                   esp_lcd_rgb_panel_event_data_t *edata,
+                                   void *user_ctx) {
+    (void)panel;
+    (void)edata;
+    (void)user_ctx;
+    frameDone = true;
+    return false;
+}
+
+/* CH422G uses a different slave address for each command, not a register pointer. */
+static bool expanderWrite(uint8_t commandAddress, uint8_t value) {
+    Wire.beginTransmission(commandAddress);
+    Wire.write(value);
+    return Wire.endTransmission() == 0;
+}
+
+static void expanderPin(uint8_t pin, bool high) {
+    if (high) expanderOutputs |= (uint8_t)(1u << pin);
+    else expanderOutputs &= (uint8_t)~(1u << pin);
+    expanderWrite(0x38, expanderOutputs);
+}
+
+static void initializeExpanderAndTouchReset() {
+    Wire.setClock(100000);
+    const bool modeOk = expanderWrite(0x24, 0x01);
+    expanderOutputs = 0xFF;
+    expanderWrite(0x38, expanderOutputs);
+
+    /* LCD reset is EXIO3. Pulse it before the RGB peripheral starts. */
+    expanderPin(3, false);
+    delay(10);
+    expanderPin(3, true);
+    delay(100);
+
+    /* Hold GT911 INT low through reset so it comes up at 0x5D.
+       TP_RST is EXIO1, active low. */
+    pinMode(4, OUTPUT);
+    digitalWrite(4, LOW);
+    delay(10);
+    expanderPin(1, false);
+    delay(100);
+    expanderPin(1, true);
+    delay(200);
+    pinMode(4, INPUT);
+    Serial.println(modeOk ? F("CH422G touch reset released")
+                          : F("WARNING: CH422G did not ACK; touch reset may be held"));
+}
 
 static bool touchReadRegs(uint8_t address, uint16_t reg, uint8_t *data, uint8_t length) {
-    Wire.beginTransmission(address);
-    Wire.write((uint8_t)(reg >> 8));
-    Wire.write((uint8_t)(reg & 0xFF));
-    if (Wire.endTransmission(false) != 0) return false;
-    if (Wire.requestFrom(address, length) != length) return false;
-    for (uint8_t i = 0; i < length; ++i) {
-        if (!Wire.available()) return false;
-        data[i] = (uint8_t)Wire.read();
+    for (uint8_t attempt = 0; attempt < 2; ++attempt) {
+        Wire.beginTransmission(address);
+        Wire.write((uint8_t)(reg >> 8));
+        Wire.write((uint8_t)(reg & 0xFF));
+        if (Wire.endTransmission(attempt == 0) != 0) continue;
+        if (Wire.requestFrom(address, length) != length) continue;
+        for (uint8_t i = 0; i < length; ++i) {
+            if (!Wire.available()) return false;
+            data[i] = (uint8_t)Wire.read();
+        }
+        return true;
     }
-    return true;
+    return false;
 }
 
 static bool touchWriteReg(uint16_t reg, uint8_t value) {
@@ -62,6 +116,11 @@ bool touchHardwareRead(uint16_t &x, uint16_t &y, bool &pressed) {
         x = min<uint16_t>(x, DISPLAY_WIDTH - 1);
         y = min<uint16_t>(y, DISPLAY_HEIGHT - 1);
         pressed = true;
+        static uint8_t logged = 0;
+        if (logged < 3) {
+            Serial.printf("Touch %u,%u\n", x, y);
+            logged++;
+        }
     }
 
     if (status & 0x80) touchWriteReg(0x814E, 0);
@@ -75,6 +134,8 @@ bool displayHardwareBegin() {
         Serial.println(F("ERROR: RGB framebuffer requires working PSRAM"));
         return false;
     }
+
+    initializeExpanderAndTouchReset();
 
     esp_lcd_rgb_panel_config_t config = {};
     config.clk_src = LCD_CLK_SRC_PLL160M;
@@ -96,6 +157,7 @@ bool displayHardwareBegin() {
     config.de_gpio_num = 5;
     config.pclk_gpio_num = 7;
     config.disp_gpio_num = -1;
+    config.on_frame_trans_done = onFrameDone;
 
     const int dataPins[16] = {
         14, 38, 18, 17, 10,       // B0-B4
@@ -127,7 +189,13 @@ bool displayHardwareBegin() {
 }
 
 void displayWritePixels(int x1, int y1, int x2, int y2, const void *colorData) {
-    if (lcdPanel != nullptr) {
-        esp_lcd_panel_draw_bitmap(lcdPanel, x1, y1, x2, y2, colorData);
+    if (lcdPanel == nullptr) return;
+    /* Small updates, such as the clock minute, tear if they are copied while
+       the RGB scan is in that region. Start those copies just after a frame. */
+    if ((x2 - x1) < 400 && (y2 - y1) < 80) {
+        frameDone = false;
+        const uint32_t start = millis();
+        while (!frameDone && (millis() - start) < 25) delay(1);
     }
+    esp_lcd_panel_draw_bitmap(lcdPanel, x1, y1, x2, y2, colorData);
 }

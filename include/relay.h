@@ -6,8 +6,8 @@
 
 /* ========================================================================
    RELAY DRIVER — XL9535 8-channel I2C expander
-   Controls pump, heater, fan via physical relay channels 1-3.
-   Channels 4-8 reserved for future expansion.
+   K2 pump, K3 heater, K4 case fan. K5 AUX is reserved and stays off.
+   K1 and K6-K8 are masked off in the driver.
    ======================================================================== */
 
 class RelayDriver {
@@ -16,9 +16,9 @@ public:
 
     /* Initialize I2C and set all relays OFF. Returns true on success. */
     bool begin();
+    bool isReady() const { return _initialized; }
 
-    /* Turn a specific relay channel ON or OFF.
-       channel: 0=pump, 1=heater, 2=fan (matches RELAY_BIT_* in config.h) */
+    /* channel is a port-0 bit. Bits outside RELAY_ALLOWED_MASK are ignored. */
     void setChannel(uint8_t channel, bool on);
 
     /* Convenience helpers */
@@ -28,9 +28,16 @@ public:
     void heaterOff();
     void fanOn();
     void fanOff();
+    void auxOn();
+    void auxOff();
 
     /* Emergency stop: turn everything OFF */
     void allOff();
+
+    /* Diagnostic: write both output ports while identifying relay mapping. */
+    void setTestOutputs(uint8_t port0, uint8_t port1);
+    void printDiagnostics();
+    bool readPair(uint8_t reg, uint8_t &port0, uint8_t &port1);
 
 private:
     uint8_t _addr;

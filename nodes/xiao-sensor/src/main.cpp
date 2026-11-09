@@ -32,7 +32,19 @@ static int16_t toCenti(float value) {
     return (int16_t)lroundf(scaled);
 }
 
-static bool readSht31(uint8_t address, float &humidity, float &tempC) {
+static bool readSht31(uint8_t sda, uint8_t scl, uint8_t address,
+                      float &humidity, float &tempC) {
+    static int activeSda = -1;
+    static int activeScl = -1;
+    if (activeSda != sda || activeScl != scl) {
+        if (activeSda >= 0) Wire.end();
+        delay(2);
+        if (!Wire.begin(sda, scl)) return false;
+        Wire.setClock(100000);
+        activeSda = sda;
+        activeScl = scl;
+    }
+
     Wire.beginTransmission(address);
     Wire.write(0x24);
     Wire.write(0x00);
@@ -78,6 +90,15 @@ static bool readChamber(float &tempC) {
     return tempC >= -20.0f && tempC <= 150.0f;
 }
 
+static uint8_t findSht31(uint8_t sda, uint8_t scl) {
+    for (uint8_t address = 0x44; address <= 0x45; ++address) {
+        float humidity = 0.0f;
+        float tempC = 0.0f;
+        if (readSht31(sda, scl, address, humidity, tempC)) return address;
+    }
+    return 0;
+}
+
 static bool radioBegin() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
@@ -101,7 +122,6 @@ void setup() {
     delay(800);
     Serial.println(F("\n=== AeroSentry XIAO sensor node ==="));
 
-    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
     pinMode(THERMISTOR_ADC_PIN, INPUT);
     analogReadResolution(12);
     analogSetPinAttenuation(THERMISTOR_ADC_PIN, ADC_11db);
@@ -109,9 +129,15 @@ void setup() {
     radioReady = radioBegin();
     Serial.println(radioReady ? F("ESP-NOW broadcast ready") : F("ESP-NOW init failed"));
     Serial.printf("Channel %d  MAC %s\n", AEROSENTRY_ESPNOW_CHANNEL, WiFi.macAddress().c_str());
-    Serial.println(F("To-Engine SHT31 ADDR to GND (0x44)"));
-    Serial.println(F("From-Engine SHT31 ADDR to 3V3 (0x45)"));
+    Serial.println(F("To-Engine I2C D4/D5, From-Engine I2C D8/D9, thermistor D1"));
+    const uint8_t toAddr = findSht31(TO_SDA_PIN, TO_SCL_PIN);
+    const uint8_t fromAddr = findSht31(FROM_SDA_PIN, FROM_SCL_PIN);
+    Serial.printf("To-Engine SHT31 %s\n", toAddr ? (toAddr == 0x44 ? "0x44" : "0x45") : "not found");
+    Serial.printf("From-Engine SHT31 %s\n", fromAddr ? (fromAddr == 0x44 ? "0x44" : "0x45") : "not found");
     Serial.println(F("Thermistor: 3V3 -- NTC -- D1 -- 10k -- GND"));
+    Serial.println(CHAMBER_DIVIDER_INSTALLED
+                       ? F("Chamber divider installed")
+                       : F("Chamber reading disabled until the 10k is installed"));
 }
 
 void loop() {
@@ -119,20 +145,23 @@ void loop() {
     packet.version = AEROSENTRY_PACKET_VERSION;
     packet.sequence = sequenceNumber++;
 
-    float humidity = 0.0f;
+    float toHumidity = 0.0f;
+    float fromHumidity = 0.0f;
     float tempC = 0.0f;
-    if (readSht31(SHT31_ADDR_TO, humidity, tempC)) {
+    if (readSht31(TO_SDA_PIN, TO_SCL_PIN, 0x44, toHumidity, tempC) ||
+        readSht31(TO_SDA_PIN, TO_SCL_PIN, 0x45, toHumidity, tempC)) {
         packet.flags |= SENSOR_FLAG_TO_VALID;
-        packet.toEngineRhCenti = toCenti(humidity);
+        packet.toEngineRhCenti = toCenti(toHumidity);
         packet.toEngineTempCenti = toCenti(tempC);
     }
-    if (readSht31(SHT31_ADDR_FROM, humidity, tempC)) {
+    if (readSht31(FROM_SDA_PIN, FROM_SCL_PIN, 0x44, fromHumidity, tempC) ||
+        readSht31(FROM_SDA_PIN, FROM_SCL_PIN, 0x45, fromHumidity, tempC)) {
         packet.flags |= SENSOR_FLAG_FROM_VALID;
-        packet.fromEngineRhCenti = toCenti(humidity);
+        packet.fromEngineRhCenti = toCenti(fromHumidity);
         packet.fromEngineTempCenti = toCenti(tempC);
     }
     static uint8_t chamberStable = 0;
-    if (readChamber(tempC)) {
+    if (CHAMBER_DIVIDER_INSTALLED && readChamber(tempC)) {
         if (chamberStable < 3) chamberStable++;
     } else {
         chamberStable = 0;
@@ -148,7 +177,10 @@ void loop() {
         sent = esp_now_send(broadcast, (uint8_t *)&packet, sizeof(packet)) == ESP_OK;
     }
 
-    Serial.printf("seq %lu flags 0x%02X sent %d\n",
-                  (unsigned long)packet.sequence, packet.flags, sent ? 1 : 0);
+    Serial.printf("seq %lu flags 0x%02X toRH %.1f fromRH %.1f sent %d\n",
+                  (unsigned long)packet.sequence, packet.flags,
+                  (packet.flags & SENSOR_FLAG_TO_VALID) ? toHumidity : -1.0f,
+                  (packet.flags & SENSOR_FLAG_FROM_VALID) ? fromHumidity : -1.0f,
+                  sent ? 1 : 0);
     delay(SEND_INTERVAL_MS);
 }

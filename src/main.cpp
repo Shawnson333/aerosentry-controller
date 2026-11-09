@@ -36,7 +36,7 @@ void setup() {
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
     Serial.println(F("I2C bus initialized (GPIO 8/9)"));
 
-    // Disabled in config.h until the external relay board address is known.
+    // XL9535 at 0x21. K1 is masked off. Active outputs start off.
     if (relay.begin()) {
         Serial.println(F("Relay driver OK - all relays OFF"));
     } else {
@@ -44,6 +44,10 @@ void setup() {
     }
 
     initializeDisplay();
+    if (!relay.isReady()) {
+        Serial.println(F("Retrying XL9535 after touch reset"));
+        relay.begin();
+    }
 
     if (sensorsBegin()) {
         Serial.println(F("Sensor receiver ready"));
@@ -85,6 +89,8 @@ void loop() {
             uiUpdateStatus(stateMachine.statusText());
             uiUpdateSensors(sensors.toEngineRH, sensors.fromEngineRH,
                             toEngineReady(), fromEngineReady());
+            uiUpdateOutputs(stateMachine.pumpOn(), stateMachine.heaterOn(),
+                            stateMachine.fanOn(), stateMachine.chipTempC());
             lastUiTick = millis();
         }
 
@@ -94,6 +100,8 @@ void loop() {
             uiUpdateMode(currentMode);
             uiSetRunning(stateMachine.isRunning());
             uiUpdateStatus(stateMachine.statusText());
+            uiUpdateOutputs(stateMachine.pumpOn(), stateMachine.heaterOn(),
+                            stateMachine.fanOn(), stateMachine.chipTempC());
             lastMode = currentMode;
         }
 

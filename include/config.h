@@ -19,19 +19,26 @@
 
 /* --- XL9535 Relay Expander --- */
 /* Board is marked XL9535. DIP address 0x21. Active-high outputs.
-   Register writes contain port 0 then port 1. K1 mapping is unconfirmed. */
+   Register writes contain port 0 then port 1.
+   K1 / P0.0 does not latch or drive. Leave it unused. */
 #define RELAY_DRIVER_ENABLED    1
 #define XL9535_ADDR             0x21
 
-/* Relay physical channel mapping (1-based, matching the 8-channel board):
-     Channel 1 (bit 0) = Pump
-     Channel 2 (bit 1) = Heater mat
-     Channel 3 (bit 2) = Case fan (reserved)
-     Channels 4–8      = Future expansion
+/* Relay map, XL9535 port 0, active-high. K1 is P0.0 and does not drive.
+   K2 was confirmed on P0.1. K3-K8 follow that order from the port-0 sweep.
+      bit 1 / K2 = Pump
+      bit 2 / K3 = Heater mat
+      bit 3 / K4 = Case fan. On while the pump runs, for all of recharge,
+                   and while the Waveshare chip is hot.
+      bit 4 / K5 = AUX, named but not driven by any mode
+      bits 0, 5, 6, 7 = K1 and K6-K8, never energized
 */
-#define RELAY_BIT_PUMP      0
-#define RELAY_BIT_HEATER    1
-#define RELAY_BIT_FAN       2
+#define RELAY_BIT_PUMP      1
+#define RELAY_BIT_HEATER    2
+#define RELAY_BIT_FAN       3
+#define RELAY_BIT_AUX       4
+#define RELAY_ALLOWED_MASK  ((1 << RELAY_BIT_PUMP) | (1 << RELAY_BIT_HEATER) | \
+                             (1 << RELAY_BIT_FAN) | (1 << RELAY_BIT_AUX))
 
 /* --- Safety / cycle timing (best guesses; tune after testing) --- */
 #define SAT_LIMIT_RH            40.0f   // To-Engine RH hard-stop (%). Not used in Recharge.
@@ -50,10 +57,16 @@
 #define RECHARGE_MAX_MS         10800000UL // Recharge max 3 hours
 #define RECHARGE_TARGET_RH      15.0f      // To-Engine RH that counts as a good cycle
 #define RECHARGE_GOOD_CYCLES    3          // Consecutive good samples required
-#define RECHARGE_TARGET_TEMP_F  240        // Chamber thermistor target before pulsing the pump
+#define RECHARGE_TARGET_TEMP_F  240        // Chamber target, Fahrenheit
+#define RECHARGE_TEMP_HYSTERESIS_F 5       // Heater back on this far below target
 #define RECHARGE_PULSE_ON_MS    10000UL    // Recharge pump on time
 #define RECHARGE_PULSE_WAIT_MS  60000UL    // Recharge wait between pulses
 #define LOG_INTERVAL_MS         30000UL    // Log every sensor while a cycle runs
+
+/* ESP32-S3 die temperature, not case air. Starting guess so a hot
+   controller can run the case fan even when the pump is off. */
+#define CASE_FAN_CHIP_ON_C      65.0f
+#define CASE_FAN_CHIP_OFF_C     55.0f
 
 /* --- UI Colors (dark theme) --- */
 #define UI_BG_COLOR         0x0A1628  // Deep navy background

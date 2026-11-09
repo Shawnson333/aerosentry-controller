@@ -53,8 +53,12 @@ StateMachine::StateMachine()
     , _saturationTiming(false)
     , _pumpOn(false)
     , _heaterOn(false)
+    , _fanOn(false)
     , _appliedPump(false)
     , _appliedHeater(false)
+    , _appliedFan(false)
+    , _chipHot(false)
+    , _chipTempC(NAN)
     , _rechargeGoodCycles(0)
 {
     config.dryerOnMinutes = 3;
@@ -69,8 +73,10 @@ void StateMachine::begin() {
     _stopMessage = nullptr;
     _pumpOn = false;
     _heaterOn = false;
+    _fanOn = false;
     _appliedPump = false;
     _appliedHeater = false;
+    _appliedFan = false;
     _rechargeGoodCycles = 0;
     resetSaturation();
     relay.allOff();
@@ -94,29 +100,30 @@ bool StateMachine::handleCommand() {
 
 void StateMachine::update() {
     if (handleCommand()) {
+        updateFan();
         applyOutputs();
         return;
     }
-    if (_mode == SystemMode::IDLE) return;
-    if (!sensorsOkForMode()) {
-        stopWith(StopReason::SENSOR_LOST);
-        return;
+    if (_mode != SystemMode::IDLE) {
+        if (!sensorsOkForMode()) {
+            stopWith(StopReason::SENSOR_LOST);
+        } else {
+            if (_inGracePeriod && (millis() - _modeStartTime >= GRACE_MS)) {
+                _inGracePeriod = false;
+            }
+            switch (_mode) {
+                case SystemMode::PURGE:        updatePurge(); break;
+                case SystemMode::DRYER_MANUAL: updateManual(); break;
+                case SystemMode::DRYER_AUTO:   updateAuto(); break;
+                case SystemMode::RECHARGE:     updateRecharge(); break;
+                default: break;
+            }
+            if (_mode != SystemMode::IDLE) checkSaturation();
+            if (_mode != SystemMode::IDLE) maybeLog();
+        }
     }
-    if (_inGracePeriod && (millis() - _modeStartTime >= GRACE_MS)) {
-        _inGracePeriod = false;
-    }
-    switch (_mode) {
-        case SystemMode::PURGE:        updatePurge(); break;
-        case SystemMode::DRYER_MANUAL: updateManual(); break;
-        case SystemMode::DRYER_AUTO:   updateAuto(); break;
-        case SystemMode::RECHARGE:     updateRecharge(); break;
-        default: break;
-    }
-    if (_mode == SystemMode::IDLE) return;
-    checkSaturation();
-    if (_mode == SystemMode::IDLE) return;
+    updateFan();
     applyOutputs();
-    maybeLog();
 }
 
 const char* StateMachine::startBlockReason(Command cmd) const {
@@ -173,6 +180,7 @@ void StateMachine::enterMode(SystemMode newMode) {
     resetSaturation();
     _heaterOn = false;
     _pumpOn = false;
+    _fanOn = false;
     switch (newMode) {
         case SystemMode::PURGE:
             _pumpOn = true;
@@ -204,12 +212,14 @@ void StateMachine::stopWith(StopReason reason) {
     _mode = SystemMode::IDLE;
     _pumpOn = false;
     _heaterOn = false;
+    _fanOn = false;
     _inGracePeriod = false;
     _pendingCmd = Command::NONE;
     resetSaturation();
     relay.allOff();
     _appliedPump = false;
     _appliedHeater = false;
+    _appliedFan = false;
     _stopReason = reason;
     if (reason == StopReason::USER || oldMode == SystemMode::IDLE) {
         _stopMessage = nullptr;
@@ -296,7 +306,7 @@ void StateMachine::updateRecharge() {
         stopWith(StopReason::RECHARGE_MAX_TIME);
         return;
     }
-    _heaterOn = true;
+    regulateHeater();
     switch (_rechargePhase) {
         case RechargePhase::HEATING:
             _pumpOn = false;
@@ -328,6 +338,34 @@ void StateMachine::updateRecharge() {
             }
             break;
     }
+}
+
+void StateMachine::regulateHeater() {
+    if (!chamberReady()) {
+        _heaterOn = false;
+        return;
+    }
+    const float fahrenheit = celsiusToFahrenheit(sensors.chamberTemp);
+    if (fahrenheit >= (float)RECHARGE_TARGET_TEMP_F) {
+        _heaterOn = false;
+    } else if (fahrenheit <= (float)(RECHARGE_TARGET_TEMP_F - RECHARGE_TEMP_HYSTERESIS_F)) {
+        _heaterOn = true;
+    }
+}
+
+void StateMachine::updateFan() {
+    static uint32_t lastRead = 0;
+    const uint32_t now = millis();
+    if (now - lastRead >= 2000UL) {
+        lastRead = now;
+        const float chipC = temperatureRead();
+        if (chipC == chipC) {
+            _chipTempC = chipC;
+            if (chipC >= CASE_FAN_CHIP_ON_C) _chipHot = true;
+            else if (chipC <= CASE_FAN_CHIP_OFF_C) _chipHot = false;
+        }
+    }
+    _fanOn = _pumpOn || _mode == SystemMode::RECHARGE || _chipHot;
 }
 
 void StateMachine::checkSaturation() {
@@ -369,6 +407,12 @@ void StateMachine::applyOutputs() {
         _appliedHeater = _heaterOn;
         Serial.println(_heaterOn ? F("Heater ON") : F("Heater OFF"));
     }
+    if (_fanOn != _appliedFan) {
+        if (_fanOn) relay.fanOn();
+        else relay.fanOff();
+        _appliedFan = _fanOn;
+        Serial.println(_fanOn ? F("Case fan ON") : F("Case fan OFF"));
+    }
 }
 
 void StateMachine::maybeLog() {
@@ -380,11 +424,11 @@ void StateMachine::maybeLog() {
                       sensors.toEngineRH, sensors.toEngineTemp, sensors.toValid,
                       sensors.fromEngineRH, sensors.fromEngineTemp, sensors.fromValid,
                       _pumpOn, _heaterOn);
-    Serial.printf("LOG %lus %s toRH=%.1f fromRH=%.1f chamberF=%.0f pump=%d heat=%d\n",
+    Serial.printf("LOG %lus %s toRH=%.1f fromRH=%.1f chamberF=%.0f pump=%d heat=%d fan=%d chipC=%.0f\n",
                   (unsigned long)seconds, systemModeName(_mode),
                   sensors.toEngineRH, sensors.fromEngineRH,
                   celsiusToFahrenheit(sensors.chamberTemp),
-                  _pumpOn ? 1 : 0, _heaterOn ? 1 : 0);
+                  _pumpOn ? 1 : 0, _heaterOn ? 1 : 0, _fanOn ? 1 : 0, _chipTempC);
 }
 
 bool StateMachine::sensorsOkForMode() const {
@@ -443,7 +487,7 @@ const char* StateMachine::statusText() const {
         }
         if (!sensors.toValid) return "To-Engine sensor offline";
         if (!sensors.fromValid) return "From-Engine sensor offline";
-        if (!sensors.chamberValid) return "Chamber sensor offline";
+        if (!sensors.chamberValid) return "Humidity live, chamber offline";
         return "Sensors ready";
     }
 
@@ -485,7 +529,8 @@ const char* StateMachine::statusText() const {
             switch (_rechargePhase) {
                 case RechargePhase::HEATING:
                     if (chamberReady()) {
-                        snprintf(buf, sizeof(buf), "Heating to %dF, now %.0fF",
+                        snprintf(buf, sizeof(buf), "%s %dF, now %.0fF",
+                                 _heaterOn ? "Heating to" : "Holding",
                                  RECHARGE_TARGET_TEMP_F,
                                  celsiusToFahrenheit(sensors.chamberTemp));
                     } else {

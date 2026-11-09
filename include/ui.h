@@ -37,6 +37,9 @@ void uiUpdateDateTime(const char *text);
 /* Update sensor values shown on the Main screen. Invalid readings display "--". */
 void uiUpdateSensors(float toRH, float fromRH, bool toValid, bool fromValid);
 
+/* Show which mapped relays the cycle logic is commanding. */
+void uiUpdateOutputs(bool pumpOn, bool heaterOn, bool fanOn, float chipC);
+
 /* Update the phase/status line on the Main screen. */
 void uiUpdateStatus(const char* text);
 
