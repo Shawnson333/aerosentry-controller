@@ -86,9 +86,10 @@ No extra I2C pull-ups. The SHT31 modules already have them. Power both modules f
 ## V1 boundaries
 
 - Local touch-screen operation is the priority.
-- One wired XIAO ESP32-C3 will supply both To-Engine and From-Engine readings by ESP-NOW.
-- SD logging and clock persistence are deferred until their hardware/time-source decisions are made.
-- MeshCore remote control is not required for V1.
+- One wired XIAO ESP32-C3 supplies both humidity readings by ESP-NOW.
+- The history viewer is a web page, not a native phone app, so iPhone and Android use the same page. Target is about 30 days, with both humidity readings about once a minute. Charts stay off the operator screen.
+- MeshCore on the Haltec radio is the remote-control path, not only a monitor. It should carry the same start, stop, and mode actions as the touch screen, plus warnings, status, and periodic log packets so the page stays current when the phone is not next to the unit. That work waits until the radio is in hand.
+- SD logging is still deferred. The clock module is the DS3231 described below.
 
 ## Future unattended recharge (not V1)
 
@@ -98,4 +99,17 @@ Design provision: keep relay mapping expandable and mode-specific hardware actio
 
 ## Clock
 
-The current software clock starts from firmware build time and advances with `millis()`. It is editable on screen but resets after power loss. RTC or network time can replace `system_clock.cpp` without changing the UI.
+The module on hand is a DS3231M with an AT24C32 EEPROM. The clock chip is I2C address `0x68`. It can share the Waveshare bus. No new ESP32 pin is required.
+
+The relay board's second I2C header is in parallel with the first, so the module can connect there if the four names match. Do not assume the connector pin order matches the module pin order. Connect label to label:
+
+- SCL to SCL
+- SDA to SDA
+- GND to GND
+- VCC only to the 3.3V logic rail, the same rail as the Waveshare I2C pull-ups
+
+Do not power the module from the 5V coil supply. The board has pull-up resistors from SDA and SCL to its VCC pin. A 5V VCC would put 5V on GPIO 8 and 9 and can damage the ESP32-S3. Leave SQW and 32K unconnected. Install the coin cell so the clock runs while the panel is unplugged.
+
+The AT24C32 is not needed for timekeeping. If the bus becomes unreliable after the module is added, tie A0, A1, and A2 to ground so the EEPROM has a fixed address and stays unused.
+
+Until that module is installed, the software clock starts from firmware build time, advances with `millis()`, and is saved once a minute. That save does not count time spent powered off. The screen editor can stay. `system_clock.cpp` is the only file the DS3231 driver needs to replace.
