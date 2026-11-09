@@ -14,31 +14,22 @@ These setpoints are best guesses and will be tuned after testing. All sensors ar
 
 - The display is **800x480**, not 480x272 as stated in the original handover.
 - RGB initialization, PSRAM, GT911 touch, main-screen rendering, mode navigation, and Stop Cycle were observed working.
-- The relay board is a PCF8574 at 0x21, not an XL9535. A normal single-byte write is the vendor protocol: 1 = coil off, 0 = coil on. Their per-channel sample maps K1 to bit 7 with `channel = 8 - channel`, then sends the inverted byte.
+- The relay board is marked **XL9535** and answers at 0x21. The Google Drive samples supplied with it describe a different PCF8574 board with no USB-C or dual-power jumper. Do not use those samples or that schematic for this hardware.
+- The user's board has dual power: 3.3V logic and a separate 5V relay supply. The matching XL9535 register protocol is two data bytes after the register: port 0 then port 1.
 
-## Relay bench notes, 2026-11-08
+## Relay bench notes
 
-Do not repeat the boot pulse. The board is being left with a single-byte `0xFF` so every coil stays off.
+The first XL9535-style sequence (`0x06, 0x00`, then `0x02, 0xFF`) energized K2-K8 and left K1 off. That was a real output-register write, not evidence for the PCF8574 protocol. Single-byte PCF8574 commands do not address an XL9535 output register and must not be used to clear it.
 
-The only pattern that actually energized relays was the first XL9535-style driver, before the vendor files were read:
+The current initialization follows the public XL9535 example at https://github.com/mcauser/micropython-xl9535-kxv5-relay:
 
-1. Probe `0x21` with an empty transmission. It ACKed.
-2. `writeReg(0x06, 0x00)` sent two bytes, `0x06` then `0x00`.
-3. `applyState()` with active-low inversion sent two bytes, `0x02` then `0xFF`.
+1. Register 0x04 <= 0x00, 0x00: no polarity inversion on either port.
+2. Register 0x02 <= 0x00, 0x00: both output ports off. This board is active-high.
+3. Register 0x06 <= 0x00, 0x00: both ports are outputs.
 
-K2 through K8 clicked and their red LEDs stayed on. K1 did not, confirmed with a meter. A later single-byte `0xFF` turned those seven off and the user confirmed every LED was out. After that, single-byte `0x00` and a bit walk (`0xFE`, `0xFD`, ... `0x7F`) produced no clicks and no LEDs, even though serial showed the writes ACKed and `0x00` read back as `0x00`. A `0xFF` write read back as `0x26`, which is normal for a PCF8574 weak pull-up loaded by the relay inputs. It does not mean those coils were on.
+K1's location is not confirmed. The working theory is that K2-K8 are on port 0 while K1 is on port 1 or otherwise mapped differently. Test that only after the all-off write is confirmed on the board. No relay test runs at boot.
 
-Next session: reproduce the two-byte `0x06, 0x00` then `0x02, 0xFF` sequence once, on purpose, and watch which LEDs change before trying another theory. Do not leave that sequence in boot code.
-
-## Relay reproduction, 2026-11-09
-
-The original two-byte sequence reproduced exactly: K2-K8 stayed solid on and K1 stayed off. A following single-byte `0xFF` was ACKed but did not clear them this time. Its readback was again `0x26`. That disproves the idea that one `0xFF` always releases the board after this sequence. The boot pulse has been removed. `begin()` now sends `0xFF` twice, 50ms apart, and nothing else turns a coil on. Next diagnostic is an I2C-bus timing/electrical check and the vendor's own exact one-byte sequence, not more XL9535 register writes.
-
-## Relay schematic finding
-
-The supplied schematic shows a PCF8574 driving AO3401 P-channel MOSFETs. A low gate energizes the relay. To release it, the gate must rise close to the relay's 5V supply. With dual-power jumpers and 3.3V logic, the PCF8574 cannot pull the gate high enough. The 5V relay source minus a 3.3V gate still leaves about 1.7V across the MOSFET, so K2-K8 can remain on despite a correct `0xFF` write. This is a hardware level problem, not something another I2C byte pattern can fix.
-
-Keep the relay 5V supply removed until this is corrected. Do not connect 5V I2C pull-ups directly to the Waveshare. The safe options are a bidirectional I2C level shifter with the PCF8574 powered at 5V and common grounds, or replacing the board with a relay driver explicitly designed for 3.3V logic. After that is fixed, retest K1 separately.
+The XL9535 itself needs no firmware. The USB-C port's purpose is unconfirmed until it is connected or the exact board documentation is found. P1 and J3 may be parallel I2C connections, but that is not confirmed for this board.
 - The saturation hard-stop applies outside Recharge only.
 - Missing sensor data must produce a warning, not a brief mode entry followed by an unexplained return to Idle.
 

@@ -32,16 +32,13 @@ public:
     /* Emergency stop: turn everything OFF */
     void allOff();
 
-    /* One-shot reproduction of the two-byte writes that energized K2-K8. */
-    void sendOriginalSequence();
-    void probe(const char* label, uint8_t pins);
-
 private:
     uint8_t _addr;
     uint8_t _state;   // Bit mask of which relays are ON
     bool _initialized;
 
-    void writePins(uint8_t pins);
+    bool writePairChecked(uint8_t reg, uint8_t port0, uint8_t port1);
+    void writePair(uint8_t reg, uint8_t port0, uint8_t port1);
     void applyState();
 };
 

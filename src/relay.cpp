@@ -37,16 +37,16 @@ bool RelayDriver::begin() {
         return false;
     }
 
-    /* Start with all relays OFF. Logical bits use 1 = ON; the board itself
-       is active-low, so the pin mask is inverted in applyState(). */
+    /* XL9535/PCA9535 protocol. Relays are active-high on this board.
+       Set both output ports off before making the pins outputs. */
+    bool ok = true;
+    ok = writePairChecked(0x04, 0x00, 0x00) && ok;  // No polarity inversion.
+    ok = writePairChecked(0x02, 0x00, 0x00) && ok;  // Both output ports OFF.
+    ok = writePairChecked(0x06, 0x00, 0x00) && ok;  // Both ports outputs.
     _state = 0x00;
-    applyState();
-    delay(50);
-    applyState();
-    Serial.println(F("PCF8574 relays forced OFF (0xFF)"));
-
-    _initialized = true;
-    return true;
+    _initialized = ok;
+    Serial.println(ok ? F("XL9535 both output ports OFF") : F("XL9535 init write failed"));
+    return ok;
 #endif
 }
 
@@ -75,46 +75,23 @@ void RelayDriver::allOff() {
     applyState();
 }
 
-void RelayDriver::writePins(uint8_t pins) {
+bool RelayDriver::writePairChecked(uint8_t reg, uint8_t port0, uint8_t port1) {
     Wire.beginTransmission(_addr);
-    Wire.write(pins);
-    Wire.endTransmission();
+    Wire.write(reg);
+    Wire.write(port0);
+    Wire.write(port1);
+    const uint8_t result = Wire.endTransmission();
+    Serial.printf("XL9535 reg 0x%02X <= 0x%02X 0x%02X result %u\n",
+                  reg, port0, port1, result);
+    return result == 0;
 }
 
-void RelayDriver::sendOriginalSequence() {
-    Wire.beginTransmission(_addr);
-    Wire.write(0x06);
-    Wire.write(0x00);
-    const uint8_t first = Wire.endTransmission();
-
-    Wire.beginTransmission(_addr);
-    Wire.write(0x02);
-    Wire.write(0xFF);
-    const uint8_t second = Wire.endTransmission();
-    Serial.printf("Original sequence results %u then %u\n", first, second);
-}
-
-void RelayDriver::probe(const char* label, uint8_t pins) {
-    Wire.beginTransmission(_addr);
-    Wire.write(pins);
-    const uint8_t writeResult = Wire.endTransmission();
-    delay(2);
-    const uint8_t got = Wire.requestFrom(_addr, (uint8_t)1);
-    const int readback = got == 1 ? Wire.read() : -1;
-    Serial.printf("%s write 0x%02X result %u readback 0x%02X\n",
-                  label, pins, writeResult, readback);
+void RelayDriver::writePair(uint8_t reg, uint8_t port0, uint8_t port1) {
+    writePairChecked(reg, port0, port1);
 }
 
 void RelayDriver::applyState() {
-    /* Vendor channel_mode() maps K1 to bit 7 and K8 to bit 0, then inverts
-       the byte. A 1 on the wire is OFF. A 0 on the wire is ON. */
-    uint8_t pins = 0xFF;
-    for (uint8_t channel = 0; channel < 8; ++channel) {
-        if (_state & (1 << channel)) {
-            pins &= (uint8_t)~(1 << (7 - channel));
-        }
-    }
-    writePins(pins);
+    writePair(0x02, _state, 0x00);
 }
 
 // Global instance

@@ -18,8 +18,8 @@
 #define DISPLAY_HEIGHT      480
 
 /* --- XL9535 Relay Expander --- */
-/* 8-channel relay board is a PCF8574, not an XL9535. DIP address 0x21.
-   One byte per write. 1 = coil off, 0 = coil on. K1 is bit 7. */
+/* Board is marked XL9535. DIP address 0x21. Active-high outputs.
+   Register writes contain port 0 then port 1. K1 mapping is unconfirmed. */
 #define RELAY_DRIVER_ENABLED    1
 #define XL9535_ADDR             0x21
 
