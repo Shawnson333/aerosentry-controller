@@ -19,7 +19,7 @@ static void dismissLogo(lv_event_t* e) {
 void uiShowLogo() {
     if (logoScreen == nullptr) {
         logoScreen = lv_obj_create(nullptr);
-        lv_obj_set_style_bg_color(logoScreen, lv_color_hex(0x050B16), 0);
+        lv_obj_set_style_bg_color(logoScreen, lv_color_hex(0x0A1628), 0);
         lv_obj_add_event_cb(logoScreen, dismissLogo, LV_EVENT_CLICKED, nullptr);
         lv_obj_add_flag(logoScreen, LV_OBJ_FLAG_CLICKABLE);
 

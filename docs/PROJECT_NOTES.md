@@ -40,6 +40,18 @@ The XL9535 itself needs no firmware. The USB-C port's purpose is unconfirmed unt
 - The saturation hard-stop applies outside Recharge only.
 - Missing sensor data must produce a warning, not a brief mode entry followed by an unexplained return to Idle.
 
+## Known-good controller
+
+Recorded after the bench confirmed touch, live humidity, the 40% stop, and the cycle screens. The splash mark was enlarged and its near-black background was replaced with the UI navy `0x0A1628` so it does not look pasted on.
+
+What is working at this point:
+
+- Waveshare touch, main controls, clock, and the AeroSentry splash.
+- XIAO on channel 1. To-Engine D4/D5 and From-Engine D8/D9, both at factory address `0x44`. Saved image: `firmware/xiao-sensor-known-good.bin`, MAC `AC:27:6E:FC:EF:A8`.
+- K2 pump, K3 heater, K4 case fan. K1 unused. K5 AUX off. K6-K8 reserved.
+- 40% To-Engine stop, purge reminder, 60-second purge qualification, and the 260F / 250F thermal stops.
+- Admin is ten taps on the title. The relay line stays visible unless hidden there.
+
 ## Known-good XIAO firmware
 
 Saved as `firmware/xiao-sensor-known-good.bin`. Flashed to the XIAO ESP32-C3 at MAC `AC:27:6E:FC:EF:A8` on 2026-04-09 and confirmed on the bench.
