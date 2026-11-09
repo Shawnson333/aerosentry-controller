@@ -41,6 +41,8 @@ bool RelayDriver::begin() {
        is active-low, so the pin mask is inverted in applyState(). */
     _state = 0x00;
     applyState();
+    delay(50);
+    applyState();
     Serial.println(F("PCF8574 relays forced OFF (0xFF)"));
 
     _initialized = true;

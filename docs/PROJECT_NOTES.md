@@ -29,6 +29,10 @@ The only pattern that actually energized relays was the first XL9535-style drive
 K2 through K8 clicked and their red LEDs stayed on. K1 did not, confirmed with a meter. A later single-byte `0xFF` turned those seven off and the user confirmed every LED was out. After that, single-byte `0x00` and a bit walk (`0xFE`, `0xFD`, ... `0x7F`) produced no clicks and no LEDs, even though serial showed the writes ACKed and `0x00` read back as `0x00`. A `0xFF` write read back as `0x26`, which is normal for a PCF8574 weak pull-up loaded by the relay inputs. It does not mean those coils were on.
 
 Next session: reproduce the two-byte `0x06, 0x00` then `0x02, 0xFF` sequence once, on purpose, and watch which LEDs change before trying another theory. Do not leave that sequence in boot code.
+
+## Relay reproduction, 2026-11-09
+
+The original two-byte sequence reproduced exactly: K2-K8 stayed solid on and K1 stayed off. A following single-byte `0xFF` was ACKed but did not clear them this time. Its readback was again `0x26`. That disproves the idea that one `0xFF` always releases the board after this sequence. The boot pulse has been removed. `begin()` now sends `0xFF` twice, 50ms apart, and nothing else turns a coil on. Next diagnostic is an I2C-bus timing/electrical check and the vendor's own exact one-byte sequence, not more XL9535 register writes.
 - The saturation hard-stop applies outside Recharge only.
 - Missing sensor data must produce a warning, not a brief mode entry followed by an unexplained return to Idle.
 
