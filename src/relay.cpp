@@ -79,13 +79,23 @@ void RelayDriver::writePins(uint8_t pins) {
     Wire.endTransmission();
 }
 
+void RelayDriver::sendOriginalSequence() {
+    Wire.beginTransmission(_addr);
+    Wire.write(0x06);
+    Wire.write(0x00);
+    const uint8_t first = Wire.endTransmission();
+
+    Wire.beginTransmission(_addr);
+    Wire.write(0x02);
+    Wire.write(0xFF);
+    const uint8_t second = Wire.endTransmission();
+    Serial.printf("Original sequence results %u then %u\n", first, second);
+}
+
 void RelayDriver::probe(const char* label, uint8_t pins) {
-    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-    Wire.setClock(100000);
     Wire.beginTransmission(_addr);
     Wire.write(pins);
     const uint8_t writeResult = Wire.endTransmission();
-
     delay(2);
     const uint8_t got = Wire.requestFrom(_addr, (uint8_t)1);
     const int readback = got == 1 ? Wire.read() : -1;

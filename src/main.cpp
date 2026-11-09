@@ -70,6 +70,23 @@ void setup() {
     }
 
     Serial.println(F("=== Setup complete ==="));
+    Serial.println(F("Watch the relays. Original sequence in 8 seconds."));
+    for (int second = 8; second > 0; --second) {
+        Serial.printf("Relay test in %d\n", second);
+        if (lvglReady) {
+            char text[32];
+            snprintf(text, sizeof(text), "Relay test in %d", second);
+            uiUpdateStatus(text);
+        }
+        delay(1000);
+    }
+    Serial.println(F("Sending original two-byte sequence"));
+    if (lvglReady) uiUpdateStatus("Relays commanded ON");
+    relay.sendOriginalSequence();
+    delay(5000);
+    Serial.println(F("Forcing all relays OFF"));
+    relay.probe("all-off", 0xFF);
+    if (lvglReady) uiUpdateStatus("Relay test done");
 }
 
 void loop() {

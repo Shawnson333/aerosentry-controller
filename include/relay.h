@@ -32,7 +32,8 @@ public:
     /* Emergency stop: turn everything OFF */
     void allOff();
 
-    /* Write one byte, read it back, and print whether the chip kept it. */
+    /* One-shot reproduction of the two-byte writes that energized K2-K8. */
+    void sendOriginalSequence();
     void probe(const char* label, uint8_t pins);
 
 private:
