@@ -18,11 +18,10 @@
 #define DISPLAY_HEIGHT      480
 
 /* --- XL9535 Relay Expander --- */
-/* Confirmed by the board DIP switches. Do not probe or write 0x20-0x27
-   except this address; the Waveshare CH422G also lives in that range. */
+/* 8-channel relay board is a PCF8574, not an XL9535. DIP address 0x21.
+   One byte per write. 1 = coil off, 0 = coil on. K1 is bit 7. */
 #define RELAY_DRIVER_ENABLED    1
 #define XL9535_ADDR             0x21
-#define RELAY_ACTIVE_LOW        1   // This board energizes a coil when the pin is low.
 
 /* Relay physical channel mapping (1-based, matching the 8-channel board):
      Channel 1 (bit 0) = Pump

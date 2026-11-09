@@ -32,15 +32,15 @@ public:
     /* Emergency stop: turn everything OFF */
     void allOff();
 
-    /* Read current relay state (for debugging) */
-    uint8_t getState() const;
+    /* Write one byte, read it back, and print whether the chip kept it. */
+    void probe(const char* label, uint8_t pins);
 
 private:
     uint8_t _addr;
     uint8_t _state;   // Bit mask of which relays are ON
     bool _initialized;
 
-    void writeReg(uint8_t reg, uint8_t value);
+    void writePins(uint8_t pins);
     void applyState();
 };
 

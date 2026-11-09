@@ -14,7 +14,21 @@ These setpoints are best guesses and will be tuned after testing. All sensors ar
 
 - The display is **800x480**, not 480x272 as stated in the original handover.
 - RGB initialization, PSRAM, GT911 touch, main-screen rendering, mode navigation, and Stop Cycle were observed working.
-- Relay writes go only to XL9535 address 0x21. Do not scan or write the rest of 0x20-0x27, because the Waveshare CH422G shares that range. K1 is the pump, K2 is the heater, and the coils are active-low.
+- The relay board is a PCF8574 at 0x21, not an XL9535. A normal single-byte write is the vendor protocol: 1 = coil off, 0 = coil on. Their per-channel sample maps K1 to bit 7 with `channel = 8 - channel`, then sends the inverted byte.
+
+## Relay bench notes, 2026-11-08
+
+Do not repeat the boot pulse. The board is being left with a single-byte `0xFF` so every coil stays off.
+
+The only pattern that actually energized relays was the first XL9535-style driver, before the vendor files were read:
+
+1. Probe `0x21` with an empty transmission. It ACKed.
+2. `writeReg(0x06, 0x00)` sent two bytes, `0x06` then `0x00`.
+3. `applyState()` with active-low inversion sent two bytes, `0x02` then `0xFF`.
+
+K2 through K8 clicked and their red LEDs stayed on. K1 did not, confirmed with a meter. A later single-byte `0xFF` turned those seven off and the user confirmed every LED was out. After that, single-byte `0x00` and a bit walk (`0xFE`, `0xFD`, ... `0x7F`) produced no clicks and no LEDs, even though serial showed the writes ACKed and `0x00` read back as `0x00`. A `0xFF` write read back as `0x26`, which is normal for a PCF8574 weak pull-up loaded by the relay inputs. It does not mean those coils were on.
+
+Next session: reproduce the two-byte `0x06, 0x00` then `0x02, 0xFF` sequence once, on purpose, and watch which LEDs change before trying another theory. Do not leave that sequence in boot code.
 - The saturation hard-stop applies outside Recharge only.
 - Missing sensor data must produce a warning, not a brief mode entry followed by an unexplained return to Idle.
 

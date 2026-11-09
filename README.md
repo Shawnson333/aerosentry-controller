@@ -7,7 +7,7 @@ Hangar-based aircraft-engine dehumidifier controller.
 - **Display/controller:** Waveshare ESP32-S3 4.3-inch Capacitive Touch LCD Development Board **Type B with case**, 800x480, ST7262 RGB LCD and GT911 touch.
 - **I2C:** GPIO 8 (SDA), GPIO 9 (SCL). GT911 is detected at 0x5D.
 - **Sensor node:** Seeed XIAO ESP32-C3 on ESP-NOW channel 1. Firmware is in `nodes/xiao-sensor`. Two SHT31-D sensors share D8/D9. The 100K NTC 3950 uses D1 with an external 10k resistor to ground.
-- **Relay board:** 8-channel XL9535 at I2C address 0x21, on the Waveshare I2C pins. Logic is 3.3V from the display; relay coils use a separate 5V supply. K1 is the pump, K2 is the heater, K3 is reserved for a case fan. Coils are active-low.
+- **Relay board:** 8-channel PCF8574 at I2C address 0x21. Coils are active-low. K1 is the pump and is bit 7 in the vendor's own channel code, not bit 0.
 
 ## Build and upload
 

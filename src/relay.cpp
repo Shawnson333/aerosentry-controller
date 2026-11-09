@@ -40,8 +40,8 @@ bool RelayDriver::begin() {
     /* Start with all relays OFF. Logical bits use 1 = ON; the board itself
        is active-low, so the pin mask is inverted in applyState(). */
     _state = 0x00;
-    writeReg(0x06, 0x00);  // Port 0: all outputs. Port 1 stays inputs.
     applyState();
+    Serial.println(F("PCF8574 relays forced OFF (0xFF)"));
 
     _initialized = true;
     return true;
@@ -73,23 +73,36 @@ void RelayDriver::allOff() {
     applyState();
 }
 
-uint8_t RelayDriver::getState() const {
-    return _state;
-}
-
-void RelayDriver::writeReg(uint8_t reg, uint8_t value) {
+void RelayDriver::writePins(uint8_t pins) {
     Wire.beginTransmission(_addr);
-    Wire.write(reg);
-    Wire.write(value);
+    Wire.write(pins);
     Wire.endTransmission();
 }
 
+void RelayDriver::probe(const char* label, uint8_t pins) {
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    Wire.setClock(100000);
+    Wire.beginTransmission(_addr);
+    Wire.write(pins);
+    const uint8_t writeResult = Wire.endTransmission();
+
+    delay(2);
+    const uint8_t got = Wire.requestFrom(_addr, (uint8_t)1);
+    const int readback = got == 1 ? Wire.read() : -1;
+    Serial.printf("%s write 0x%02X result %u readback 0x%02X\n",
+                  label, pins, writeResult, readback);
+}
+
 void RelayDriver::applyState() {
-    uint8_t pins = _state;
-#if RELAY_ACTIVE_LOW
-    pins = (uint8_t)~pins;
-#endif
-    writeReg(0x02, pins);  // Port 0 output. K1 is bit 0.
+    /* Vendor channel_mode() maps K1 to bit 7 and K8 to bit 0, then inverts
+       the byte. A 1 on the wire is OFF. A 0 on the wire is ON. */
+    uint8_t pins = 0xFF;
+    for (uint8_t channel = 0; channel < 8; ++channel) {
+        if (_state & (1 << channel)) {
+            pins &= (uint8_t)~(1 << (7 - channel));
+        }
+    }
+    writePins(pins);
 }
 
 // Global instance
