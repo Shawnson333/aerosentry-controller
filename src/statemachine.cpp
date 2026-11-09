@@ -437,9 +437,9 @@ const char* StateMachine::statusText() const {
     char remain[24];
 
     if (_mode == SystemMode::IDLE) {
-        if (!sensorPacketFresh() ||
-            (!sensors.toValid && !sensors.fromValid && !sensors.chamberValid)) {
-            return "Sensors offline";
+        if (!sensorPacketFresh()) return "Sensors offline";
+        if (!sensors.toValid && !sensors.fromValid && !sensors.chamberValid) {
+            return "XIAO online, sensors not wired";
         }
         if (!sensors.toValid) return "To-Engine sensor offline";
         if (!sensors.fromValid) return "From-Engine sensor offline";

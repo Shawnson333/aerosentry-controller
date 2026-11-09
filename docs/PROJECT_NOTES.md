@@ -18,6 +18,16 @@ These setpoints are best guesses and will be tuned after testing. All sensors ar
 - The saturation hard-stop applies outside Recharge only.
 - Missing sensor data must produce a warning, not a brief mode entry followed by an unexplained return to Idle.
 
+## XIAO wiring
+
+No extra I2C pull-ups. The SHT31 modules already have them. Power both modules from the XIAO 3V3 pin, not 5V, so their pull-ups cannot put 5V on the XIAO pins.
+
+- D8 SDA, D9 SCL, shared by both SHT31 boards.
+- To-Engine ADDR tied to GND (address 0x44).
+- From-Engine ADDR tied to 3V3 (address 0x45). Do not leave ADDR floating.
+- Chamber thermistor: one lead to 3V3, the other lead to D1. A separate 10k resistor goes from D1 to GND. A 100nF capacitor from D1 to GND is optional but helps on the 1m cable.
+- The thermistor needs that external resistor. The XIAO's internal pull-up is not accurate enough and must stay off.
+
 ## V1 boundaries
 
 - Local touch-screen operation is the priority.
