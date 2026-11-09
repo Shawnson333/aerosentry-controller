@@ -24,7 +24,7 @@ From this directory (Windows):
 - Direct ESP-IDF RGB driver and LVGL 8.3.11 work on the Type B display.
 - Main, warning, Manual Dryer Setup, Auto Cycle, and editable clock screens are implemented.
 - Mode start commands require the sensor that mode actually uses. Until the XIAO is connected, Start displays a sensor-unavailable warning.
-- Purge and manual dryer watch To-Engine for the 40% hard-stop. Auto watches both humidity sensors. Recharge heats to 240F on the XIAO chamber thermistor, then ends on three consecutive To-Engine readings at or below 15%, or at 3 hours.
+- Purge and manual dryer watch To-Engine for the 40% hard-stop. Auto watches both humidity sensors. Recharge holds 240F on the chamber thermistor, then ends on three consecutive To-Engine readings at or below 15%, or at 3 hours. Chamber temperature above 260F, or either humidity-sensor temperature above 250F, stops all outputs. Dryer start warns if no purge has run in the last hour.
 - The Waveshare listens for the XIAO packet. Until a packet arrives, the screen stays on Sensors offline. Humidity readings can be tested before the thermistor's 10k resistor is installed. Recharge stays blocked until that chamber reading is valid.
 - The software clock starts at firmware build time and is not retained across power loss.
 

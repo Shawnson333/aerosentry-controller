@@ -27,6 +27,7 @@ static void cbDryer(lv_event_t* e);
 static void cbRecharge(lv_event_t* e);
 static void cbStop(lv_event_t* e);
 static void cbDateTime(lv_event_t* e);
+static void cbTitle(lv_event_t* e);
 
 static lv_obj_t* makeButton(lv_obj_t* parent, int16_t x, int16_t y,
                             uint16_t w, uint16_t h,
@@ -56,6 +57,8 @@ void uiShowMain() {
         lv_obj_set_style_text_color(titleLabel, lv_color_hex(UI_TEXT_COLOR), 0);
         lv_obj_set_style_text_font(titleLabel, &lv_font_montserrat_36, 0);
         lv_obj_align(titleLabel, LV_ALIGN_TOP_MID, 0, 20);
+        lv_obj_add_flag(titleLabel, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(titleLabel, cbTitle, LV_EVENT_CLICKED, nullptr);
 
         dateTimeBtn = lv_btn_create(mainScreen);
         lv_obj_set_size(dateTimeBtn, 280, 50);
@@ -149,6 +152,11 @@ void uiUpdateStatus(const char* text) {
 
 void uiUpdateOutputs(bool pumpOn, bool heaterOn, bool fanOn, float chipC) {
     if (outputLabel == nullptr) return;
+    if (!uiDiagnosticsVisible()) {
+        lv_obj_add_flag(outputLabel, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_clear_flag(outputLabel, LV_OBJ_FLAG_HIDDEN);
     char buf[96];
     if (chipC == chipC) {
         snprintf(buf, sizeof(buf), "K2 pump %s   K3 heat %s   K4 fan %s   chip %.0fC",
@@ -179,18 +187,45 @@ void uiUpdateSensors(float toRH, float fromRH, bool toValid, bool fromValid) {
     }
 }
 
-static void cbPurge(lv_event_t* e) {
+static void cbTitle(lv_event_t* e) {
     (void)e;
+    static uint8_t taps = 0;
+    static uint32_t lastTap = 0;
+    const uint32_t now = millis();
+    if (now - lastTap > 3000UL) taps = 0;
+    lastTap = now;
+    if (++taps >= 10) {
+        taps = 0;
+        uiShowAdmin();
+    }
+}
+
+static void promptPurge() {
     uiShowWarning("Connect To Engine Line.\nLeave From Engine Line Disconnected.",
                   [](lv_event_t*) {
                       uiHandleStartResult(Command::START_PURGE);
                   });
 }
 
-static void cbDryer(lv_event_t* e) {
-    (void)e;
+static void promptDryer() {
     uiShowWarning("Connect both To Engine and From Engine Lines.",
                   [](lv_event_t*) { uiShowDryerSetup(); });
+}
+
+static void cbPurge(lv_event_t* e) {
+    (void)e;
+    promptPurge();
+}
+
+static void cbDryer(lv_event_t* e) {
+    (void)e;
+    if (stateMachine.purgeRecent()) {
+        promptDryer();
+        return;
+    }
+    uiShowChoice("No purge cycle detected.\nRecommend Purge Cycle.",
+                 [](lv_event_t*) { promptPurge(); }, "Purge",
+                 [](lv_event_t*) { promptDryer(); }, "Continue to Dryer");
 }
 
 static void cbRecharge(lv_event_t* e) {

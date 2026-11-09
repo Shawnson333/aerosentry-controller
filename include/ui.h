@@ -22,6 +22,17 @@ void uiLoop();
 void uiShowWarning(const char* message, lv_event_cb_t onContinue,
                    const char* buttonText = "Continue");
 
+/* Two actions. The left button is the recommended path. */
+void uiShowChoice(const char* message,
+                  lv_event_cb_t onLeft, const char* leftText,
+                  lv_event_cb_t onRight, const char* rightText);
+
+void uiShowAdmin();
+bool uiAdminVisible();
+void uiUpdateAdmin();
+void uiSetDiagnosticsVisible(bool visible);
+bool uiDiagnosticsVisible();
+
 /* Return to the Main screen. */
 void uiShowMain();
 void uiShowDryerSetup();

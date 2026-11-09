@@ -91,6 +91,7 @@ void loop() {
                             toEngineReady(), fromEngineReady());
             uiUpdateOutputs(stateMachine.pumpOn(), stateMachine.heaterOn(),
                             stateMachine.fanOn(), stateMachine.chipTempC());
+            if (uiAdminVisible()) uiUpdateAdmin();
             lastUiTick = millis();
         }
 

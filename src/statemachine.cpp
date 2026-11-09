@@ -59,6 +59,9 @@ StateMachine::StateMachine()
     , _appliedFan(false)
     , _chipHot(false)
     , _chipTempC(NAN)
+    , _purgeSeen(false)
+    , _thermalLatched(false)
+    , _lastPurgeMs(0)
     , _rechargeGoodCycles(0)
 {
     config.dryerOnMinutes = 3;
@@ -99,6 +102,7 @@ bool StateMachine::handleCommand() {
 }
 
 void StateMachine::update() {
+    checkThermal();
     if (handleCommand()) {
         updateFan();
         applyOutputs();
@@ -122,6 +126,7 @@ void StateMachine::update() {
             if (_mode != SystemMode::IDLE) maybeLog();
         }
     }
+    checkThermal();
     updateFan();
     applyOutputs();
 }
@@ -129,6 +134,9 @@ void StateMachine::update() {
 const char* StateMachine::startBlockReason(Command cmd) const {
     if (cmd == Command::STOP || cmd == Command::NONE) return "Invalid start.";
     if (_mode != SystemMode::IDLE) return "A cycle is already running.";
+    if (thermalExceeded()) {
+        return "Temperature is above the safety limit.\nLet the system cool and try again.";
+    }
     switch (cmd) {
         case Command::START_PURGE:
         case Command::START_DRYER_MANUAL:
@@ -184,6 +192,8 @@ void StateMachine::enterMode(SystemMode newMode) {
     switch (newMode) {
         case SystemMode::PURGE:
             _pumpOn = true;
+            _purgeSeen = true;
+            _lastPurgeMs = millis();
             break;
         case SystemMode::DRYER_MANUAL:
             _manualPhase = ManualPhase::ON;
@@ -241,6 +251,8 @@ void StateMachine::stopWith(StopReason reason) {
         _stopMessage = "Recharge complete.\nThree readings in a row were below 15%.";
     } else if (reason == StopReason::RECHARGE_MAX_TIME) {
         _stopMessage = "Recharge stopped.\n3 hour limit reached.";
+    } else if (reason == StopReason::THERMAL) {
+        _stopMessage = "Thermal limit reached.\nHeater and pump are off.";
     } else {
         _stopMessage = "Cycle stopped.";
     }
@@ -337,6 +349,53 @@ void StateMachine::updateRecharge() {
                 setRechargePhase(RechargePhase::PULSE_ON);
             }
             break;
+    }
+}
+
+bool StateMachine::purgeRecent() const {
+    return _purgeSeen && (millis() - _lastPurgeMs) <= PURGE_RECENT_MS;
+}
+
+uint32_t StateMachine::purgeAgeMs() const {
+    if (!_purgeSeen) return 0;
+    return millis() - _lastPurgeMs;
+}
+
+bool StateMachine::thermalExceeded() const {
+    if (chamberReady() &&
+        celsiusToFahrenheit(sensors.chamberTemp) > (float)THERMAL_CHAMBER_F) {
+        return true;
+    }
+    if (toEngineReady() &&
+        celsiusToFahrenheit(sensors.toEngineTemp) > (float)THERMAL_SENSOR_F) {
+        return true;
+    }
+    if (fromEngineReady() &&
+        celsiusToFahrenheit(sensors.fromEngineTemp) > (float)THERMAL_SENSOR_F) {
+        return true;
+    }
+    return false;
+}
+
+void StateMachine::checkThermal() {
+    if (!thermalExceeded()) {
+        _thermalLatched = false;
+        return;
+    }
+    if (_thermalLatched) return;
+    _thermalLatched = true;
+    Serial.println(F("Thermal limit reached"));
+    if (_mode != SystemMode::IDLE) {
+        stopWith(StopReason::THERMAL);
+    } else {
+        _pumpOn = false;
+        _heaterOn = false;
+        _fanOn = false;
+        relay.allOff();
+        _appliedPump = false;
+        _appliedHeater = false;
+        _appliedFan = false;
+        _stopMessage = "Thermal limit reached.\nHeater and pump are off.";
     }
 }
 

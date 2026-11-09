@@ -35,7 +35,8 @@ enum class StopReason {
     SATURATED,
     SENSOR_LOST,
     RECHARGE_COMPLETE,
-    RECHARGE_MAX_TIME
+    RECHARGE_MAX_TIME,
+    THERMAL
 };
 
 struct ModeConfig {
@@ -70,6 +71,9 @@ public:
 
     /* Phase line for the main screen. Valid until the next call. */
     const char* statusText() const;
+    bool purgeRecent() const;
+    uint32_t purgeAgeMs() const;
+    bool hasPurgeRecord() const { return _purgeSeen; }
 
     ModeConfig config;
     uint32_t timeRemainingMs() const;
@@ -101,6 +105,9 @@ private:
     bool _appliedFan;
     bool _chipHot;
     float _chipTempC;
+    bool _purgeSeen;
+    bool _thermalLatched;
+    uint32_t _lastPurgeMs;
     uint8_t _rechargeGoodCycles;
 
     bool handleCommand();
@@ -112,6 +119,8 @@ private:
     void updateRecharge();
     void checkSaturation();
     void resetSaturation();
+    void checkThermal();
+    bool thermalExceeded() const;
     void applyOutputs();
     void updateFan();
     void regulateHeater();
