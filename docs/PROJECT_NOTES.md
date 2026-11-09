@@ -14,7 +14,7 @@ These setpoints are best guesses and will be tuned after testing. All sensors ar
 
 - The display is **800x480**, not 480x272 as stated in the original handover.
 - RGB initialization, PSRAM, GT911 touch, main-screen rendering, mode navigation, and Stop Cycle were observed working.
-- Relay writes are disabled until the external board address is confirmed; never probe it by writing to the Waveshare CH422G.
+- Relay writes go only to XL9535 address 0x21. Do not scan or write the rest of 0x20-0x27, because the Waveshare CH422G shares that range. K1 is the pump, K2 is the heater, and the coils are active-low.
 - The saturation hard-stop applies outside Recharge only.
 - Missing sensor data must produce a warning, not a brief mode entry followed by an unexplained return to Idle.
 

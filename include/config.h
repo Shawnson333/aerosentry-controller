@@ -18,10 +18,11 @@
 #define DISPLAY_HEIGHT      480
 
 /* --- XL9535 Relay Expander --- */
-// Keep disabled until DIP address is confirmed. The Waveshare's onboard
-// CH422G also responds in the 0x20-0x27 range; do not write to it as XL9535.
-#define RELAY_DRIVER_ENABLED    0
-#define XL9535_ADDR     0x20  // Placeholder only; not used while disabled.
+/* Confirmed by the board DIP switches. Do not probe or write 0x20-0x27
+   except this address; the Waveshare CH422G also lives in that range. */
+#define RELAY_DRIVER_ENABLED    1
+#define XL9535_ADDR             0x21
+#define RELAY_ACTIVE_LOW        1   // This board energizes a coil when the pin is low.
 
 /* Relay physical channel mapping (1-based, matching the 8-channel board):
      Channel 1 (bit 0) = Pump

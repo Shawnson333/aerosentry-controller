@@ -37,12 +37,11 @@ bool RelayDriver::begin() {
         return false;
     }
 
-    /* Set Port 0 configuration to all outputs (0x00) */
-    writeReg(0x06, 0x00);
-
-    /* Start with all relays OFF */
+    /* Start with all relays OFF. Logical bits use 1 = ON; the board itself
+       is active-low, so the pin mask is inverted in applyState(). */
     _state = 0x00;
-    writeReg(0x02, _state);
+    writeReg(0x06, 0x00);  // Port 0: all outputs. Port 1 stays inputs.
+    applyState();
 
     _initialized = true;
     return true;
@@ -86,7 +85,11 @@ void RelayDriver::writeReg(uint8_t reg, uint8_t value) {
 }
 
 void RelayDriver::applyState() {
-    writeReg(0x02, _state);  // Port 0 Output register
+    uint8_t pins = _state;
+#if RELAY_ACTIVE_LOW
+    pins = (uint8_t)~pins;
+#endif
+    writeReg(0x02, pins);  // Port 0 output. K1 is bit 0.
 }
 
 // Global instance
