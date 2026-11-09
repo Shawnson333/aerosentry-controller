@@ -33,6 +33,12 @@ Next session: reproduce the two-byte `0x06, 0x00` then `0x02, 0xFF` sequence onc
 ## Relay reproduction, 2026-11-09
 
 The original two-byte sequence reproduced exactly: K2-K8 stayed solid on and K1 stayed off. A following single-byte `0xFF` was ACKed but did not clear them this time. Its readback was again `0x26`. That disproves the idea that one `0xFF` always releases the board after this sequence. The boot pulse has been removed. `begin()` now sends `0xFF` twice, 50ms apart, and nothing else turns a coil on. Next diagnostic is an I2C-bus timing/electrical check and the vendor's own exact one-byte sequence, not more XL9535 register writes.
+
+## Relay schematic finding
+
+The supplied schematic shows a PCF8574 driving AO3401 P-channel MOSFETs. A low gate energizes the relay. To release it, the gate must rise close to the relay's 5V supply. With dual-power jumpers and 3.3V logic, the PCF8574 cannot pull the gate high enough. The 5V relay source minus a 3.3V gate still leaves about 1.7V across the MOSFET, so K2-K8 can remain on despite a correct `0xFF` write. This is a hardware level problem, not something another I2C byte pattern can fix.
+
+Keep the relay 5V supply removed until this is corrected. Do not connect 5V I2C pull-ups directly to the Waveshare. The safe options are a bidirectional I2C level shifter with the PCF8574 powered at 5V and common grounds, or replacing the board with a relay driver explicitly designed for 3.3V logic. After that is fixed, retest K1 separately.
 - The saturation hard-stop applies outside Recharge only.
 - Missing sensor data must produce a warning, not a brief mode entry followed by an unexplained return to Idle.
 
