@@ -62,7 +62,8 @@
 #define RECHARGE_PULSE_ON_MS    10000UL    // Recharge pump on time
 #define RECHARGE_PULSE_WAIT_MS  60000UL    // Recharge wait between pulses
 #define LOG_INTERVAL_MS         30000UL    // Log every sensor while a cycle runs
-#define PURGE_RECENT_MS         3600000UL  // Dryer warns if no purge started in this window
+#define PURGE_RECENT_MS         3600000UL  // Dryer warns if no qualified purge in this window
+#define PURGE_QUALIFY_MS        60000UL    // Pump must run this long before a purge counts
 
 /* Hard thermal stops. Chamber is the heater control sensor.
    The SHT31s should stay well below chamber temperature. */

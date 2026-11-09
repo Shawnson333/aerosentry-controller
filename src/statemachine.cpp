@@ -7,6 +7,7 @@
 #include "statemachine.h"
 #include "relay.h"
 #include "logging.h"
+#include "system_clock.h"
 
 static float celsiusToFahrenheit(float celsius) {
     return celsius * 9.0f / 5.0f + 32.0f;
@@ -60,8 +61,10 @@ StateMachine::StateMachine()
     , _chipHot(false)
     , _chipTempC(NAN)
     , _purgeSeen(false)
+    , _purgeQualified(false)
     , _thermalLatched(false)
     , _lastPurgeMs(0)
+    , _purgeEpoch(0)
     , _rechargeGoodCycles(0)
 {
     config.dryerOnMinutes = 3;
@@ -82,6 +85,8 @@ void StateMachine::begin() {
     _appliedFan = false;
     _rechargeGoodCycles = 0;
     resetSaturation();
+    _purgeEpoch = systemClockSavedPurge();
+    _purgeSeen = _purgeEpoch != 0;
     relay.allOff();
 }
 
@@ -192,8 +197,7 @@ void StateMachine::enterMode(SystemMode newMode) {
     switch (newMode) {
         case SystemMode::PURGE:
             _pumpOn = true;
-            _purgeSeen = true;
-            _lastPurgeMs = millis();
+            _purgeQualified = false;
             break;
         case SystemMode::DRYER_MANUAL:
             _manualPhase = ManualPhase::ON;
@@ -266,6 +270,14 @@ void StateMachine::stopWith(StopReason reason) {
 void StateMachine::updatePurge() {
     _pumpOn = true;
     _heaterOn = false;
+    if (!_purgeQualified && (millis() - _modeStartTime) >= PURGE_QUALIFY_MS) {
+        _purgeQualified = true;
+        _purgeSeen = true;
+        _lastPurgeMs = millis();
+        _purgeEpoch = systemClockEpoch();
+        systemClockSavePurge();
+        Serial.println(F("Purge qualified after 60 seconds"));
+    }
 }
 
 void StateMachine::updateManual() {
@@ -353,12 +365,17 @@ void StateMachine::updateRecharge() {
 }
 
 bool StateMachine::purgeRecent() const {
-    return _purgeSeen && (millis() - _lastPurgeMs) <= PURGE_RECENT_MS;
+    if (!_purgeSeen || _purgeEpoch == 0) return false;
+    const time_t now = systemClockEpoch();
+    if (now < _purgeEpoch) return false;
+    return (uint32_t)(now - _purgeEpoch) * 1000UL <= PURGE_RECENT_MS;
 }
 
 uint32_t StateMachine::purgeAgeMs() const {
-    if (!_purgeSeen) return 0;
-    return millis() - _lastPurgeMs;
+    if (!_purgeSeen || _purgeEpoch == 0) return 0;
+    const time_t now = systemClockEpoch();
+    if (now < _purgeEpoch) return 0;
+    return (uint32_t)(now - _purgeEpoch) * 1000UL;
 }
 
 bool StateMachine::thermalExceeded() const {

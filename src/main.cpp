@@ -61,8 +61,8 @@ void setup() {
         Serial.println(F("SD logger not available yet (stub)"));
     }
 
-    stateMachine.begin();
     systemClockBegin();
+    stateMachine.begin();
     Serial.println(F("State machine ready - Idle mode"));
     Serial.println(F("Rules: purge/manual watch To-Engine; auto watches both; recharge ignores 40%"));
 
@@ -92,6 +92,7 @@ void loop() {
             uiUpdateOutputs(stateMachine.pumpOn(), stateMachine.heaterOn(),
                             stateMachine.fanOn(), stateMachine.chipTempC());
             if (uiAdminVisible()) uiUpdateAdmin();
+            systemClockSave();
             lastUiTick = millis();
         }
 

@@ -106,8 +106,10 @@ private:
     bool _chipHot;
     float _chipTempC;
     bool _purgeSeen;
+    bool _purgeQualified;
     bool _thermalLatched;
     uint32_t _lastPurgeMs;
+    time_t _purgeEpoch;
     uint8_t _rechargeGoodCycles;
 
     bool handleCommand();

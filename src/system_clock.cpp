@@ -1,9 +1,11 @@
 #include "system_clock.h"
+#include <Preferences.h>
 #include <time.h>
 
 static time_t baseEpoch = 0;
 static uint32_t baseMillis = 0;
 static bool initialized = false;
+static Preferences clockStore;
 
 static time_t currentEpoch() {
     return baseEpoch + (time_t)((millis() - baseMillis) / 1000UL);
@@ -34,7 +36,37 @@ void systemClockBegin() {
 
     baseEpoch = mktime(&buildTime);
     baseMillis = millis();
+    clockStore.begin("aerosentry", false);
+    const uint32_t saved = clockStore.getUInt("clock", 0);
+    if (saved > 1700000000UL) {
+        baseEpoch = (time_t)saved;
+        baseMillis = millis();
+    }
     initialized = true;
+}
+
+time_t systemClockEpoch() {
+    return currentEpoch();
+}
+
+void systemClockSave() {
+    if (!initialized) return;
+    static uint32_t lastSave = 0;
+    if (millis() - lastSave < 60000UL) return;
+    lastSave = millis();
+    clockStore.putUInt("clock", (uint32_t)currentEpoch());
+}
+
+void systemClockSavePurge() {
+    if (!initialized) return;
+    const uint32_t now = (uint32_t)currentEpoch();
+    clockStore.putUInt("purge", now);
+    clockStore.putUInt("clock", now);
+}
+
+time_t systemClockSavedPurge() {
+    if (!initialized) return 0;
+    return (time_t)clockStore.getUInt("purge", 0);
 }
 
 void systemClockAdjust(ClockField field, int delta) {

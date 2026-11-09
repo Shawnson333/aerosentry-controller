@@ -7,5 +7,6 @@
 bool displayHardwareBegin();
 void displayWritePixels(int x1, int y1, int x2, int y2, const void *colorData);
 bool touchHardwareRead(uint16_t &x, uint16_t &y, bool &pressed);
+uint32_t displayLastTouchMs();
 
 #endif // DISPLAY_H

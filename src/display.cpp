@@ -9,6 +9,7 @@
 static esp_lcd_panel_handle_t lcdPanel = nullptr;
 static uint8_t touchAddress = 0;
 static bool touchReady = false;
+static uint32_t lastTouchMs = 0;
 static uint8_t expanderOutputs = 0xFF;
 static volatile bool frameDone = false;
 
@@ -116,6 +117,7 @@ bool touchHardwareRead(uint16_t &x, uint16_t &y, bool &pressed) {
         x = min<uint16_t>(x, DISPLAY_WIDTH - 1);
         y = min<uint16_t>(y, DISPLAY_HEIGHT - 1);
         pressed = true;
+        lastTouchMs = millis();
         static uint8_t logged = 0;
         if (logged < 3) {
             Serial.printf("Touch %u,%u\n", x, y);
@@ -125,6 +127,10 @@ bool touchHardwareRead(uint16_t &x, uint16_t &y, bool &pressed) {
 
     if (status & 0x80) touchWriteReg(0x814E, 0);
     return true;
+}
+
+uint32_t displayLastTouchMs() {
+    return lastTouchMs;
 }
 
 bool displayHardwareBegin() {

@@ -9,10 +9,11 @@
 #include "lvgl_v8_port.h"
 
 void uiBegin() {
-    uiShowMain();  // Defined in ui_main.cpp
+    uiShowLogo();
 }
 
 void uiLoop() {
+    uiLogoTick();
     lvgl_port_loop();
 }
 

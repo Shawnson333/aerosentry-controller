@@ -27,6 +27,9 @@ void uiShowChoice(const char* message,
                   lv_event_cb_t onLeft, const char* leftText,
                   lv_event_cb_t onRight, const char* rightText);
 
+void uiShowLogo();
+bool uiLogoVisible();
+void uiLogoTick();
 void uiShowAdmin();
 bool uiAdminVisible();
 void uiUpdateAdmin();
