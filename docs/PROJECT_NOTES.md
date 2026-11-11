@@ -21,7 +21,7 @@ Still deferred, on purpose:
 - SD card logging. `src/logging.cpp` is a stub. The intended file is `/hangar.csv`.
 - History web page. About 30 days, both humidities about once a minute. Charts stay off the operator screen.
 - Unattended recharge valves. Do not assign K6-K8 until that sequence exists.
-- Heltec WiFi LoRa 32 V4.3 OLED board is in hand. GPS is unplugged. The local link is the Waveshare RS485 socket, with Heltec GPIO 26 TX, GPIO 33 RX, and GPIO 47 direction, through a 3.3V RS485 module. Wiring is in "Home wiring" below. No Heltec firmware is in this repo yet.
+- Heltec WiFi LoRa 32 V4.3 OLED board is in hand. GPS is unplugged. No extra adapter and no wires between the Heltec and the Waveshare. The local link is ESP-NOW channel 1, a different packet from the XIAO. Details are under "Next: Heltec V4". No Heltec firmware is in this repo yet.
 
 Do not reopen these while adding the radio: the XL9535 is not a PCF8574, K1 does not drive, the XIAO stays on ESP-NOW channel 1, and a remote command must not become a second state machine.
 
@@ -31,56 +31,27 @@ The board in hand is a Heltec WiFi LoRa 32 **V4.3** with the 0.96-inch OLED. GPS
 
 Role, already decided: the Heltec is the LoRa coprocessor. MeshCore carries start, stop, and mode actions, plus warnings, status, and periodic log packets, so the phone page can stay current away from the unit. It does not drive relays. Remote start and stop must call the existing `StateMachine::command()` path so the sensor, saturation, and thermal checks still apply. If the local link is down, ignore remote starts. The touch screen still stops the cycle.
 
-Link, decided 2026-11-11: use the Waveshare RS485 port, not I2C, not USB-C, and not another ESP-NOW radio.
+Link, revised 2026-11-11: no extra module, and no wires from the Heltec to the Waveshare. Use ESP-NOW channel 1.
 
-- The Waveshare RS485 port is the link. Its demo uses Serial1 on GPIO 43 RX and GPIO 44 TX at 115200, but those pins already go to the onboard SP3485. Do not put jumpers on GPIO 43 or 44. Use the RS485 socket only. Schematic nets: A is `RS485_TX+`, B is `RS485_TX-`. Match the silkscreen A to A and B to B. If the socket is only numbered, stop and check before powering it. Do not power the Heltec module from the relay coil 5V, and do not connect a Waveshare 5V pin to a Heltec 3.3V pin.
-- Do not put the Heltec on the Waveshare I2C bus, and do not buy a splitter or mux to do it. GPIO 8/9 already has the GT911 at 0x5D, the CH422G, the XL9535 at 0x21, and the DS3231M at 0x68. There is no address conflict. The relay board's second I2C header is already a parallel plug. A passive splitter only adds capacitance. A mux is for a later address clash or a flaky extra sensor, not for talking to another computer. A stuck I2C slave can hang touch and the relays. The Heltec is also an I2C master for its own OLED.
-- Do not connect the two USB-C ports. The Waveshare USB-C is the native programming port, COM4. On this board, USB D-/D+ can be switched over to CAN, which turns USB off. It is not a host port, and a C-to-C cable between two device ports will not enumerate. Leave both USB-C ports for flashing.
-- Do not copy the XIAO pattern. The XIAO has to sit out on the engine lines, so ESP-NOW channel 1 is the right link for sensors. The Heltec sits with the controller. Its useful radio is the SX1262, toward the phone. A second ESP-NOW peer can drop or repeat a start or stop, and it shares the 2.4 GHz radio that the XIAO already uses. Do not enable MeshCore's Heltec ESP-NOW bridge.
+- An RS485 adapter is not required. It was only needed to translate the Waveshare RS485 socket. That socket stays unused. GPIO 43 and 44 already go to the onboard RS485 chip, so they are not a plain serial port either. There is no free serial header to land a 3-wire cable on.
+- I2C needs no adapter, only SDA, SCL, and GND, and it is still the wrong bus. Those wires already run the touch controller and the relay chip. If the Heltec locks them, the screen and the relays stop together, including the button that turns the heater off. Do not put the Heltec there to avoid a small board.
+- USB-C to USB-C still does not work. Both ports are programming ports.
+- ESP-NOW does work. The earlier "do not copy the XIAO" note was too strong. The Heltec can be a second peer on channel 1. Its packet must not look like the XIAO sensor packet. A missed humidity reading is harmless. A missed stop is not, so a command is acknowledged, a stop is repeated until acknowledged, and a quiet link cannot start a cycle. The touch screen still stops the unit. The Heltec stays on channel 1 and does not join Wi-Fi. The phone path is the SX1262 LoRa radio, which is a separate radio and can run at the same time. Do not flash MeshCore's stock ESP-NOW bridge.
+
+No Heltec pins are wired for this link. Power it, leave USB-C for flashing, and leave the GNSS connector empty.
 
 OLED stays. It is the radio's own status display: link, last command accepted or rejected. It is not a second operator screen.
 
 GPS is unplugged. Leave the GNSS pins unused: RX 38, TX 39, EN 34, RESET 42. A map pin later can be a typed-in hangar coordinate. Time already comes from the DS3231M.
 
-## Home wiring — Heltec V4.3 to Waveshare
+## No Heltec wiring for the controller link
 
-The Heltec has no RS485 socket. A small 3.3V RS485 adapter sits next to it. Heltec pins go only to that adapter. The adapter's A and B wires are the only signal wires that go on to the Waveshare.
-
-Do this only with a 3.3V adapter (SP3485 or MAX3485). A common blue 5V MAX485 board puts 5V back into the Heltec and can damage it. If the adapter at home is 5V, do not wire it.
-
-Five wires on the Heltec side, using the numbers printed on the Heltec header:
-
-| Heltec pin | Adapter pin to look for |
-| --- | --- |
-| 26 | TXD. Some boards print this as TX or DI. |
-| 33 | RXD. Some boards print this as RX or RO. |
-| 47 | DE and RE. Twist those two adapter pins together and land the one wire on 47. If the adapter has one pin already marked DE/RE, use that and skip the twist. |
-| 3V3 | VCC |
-| GND | GND |
-
-That is the whole Heltec hookup. Do not also run 26 or 33 over to the Waveshare. Do not use Heltec pins 2, 5, or 7. Those run the V4.3 power amplifier.
-
-Three wires leave the adapter for the Waveshare RS485 socket:
-
-| Adapter | Waveshare socket |
-| --- | --- |
-| A | A |
-| B | B |
-| GND | GND |
-
-Do not put jumpers on Waveshare GPIO 43 or 44. Those already go to the onboard RS485 chip. Leave both USB-C ports for programming. Do not power the adapter from the relay coil 5V, and do not connect a 5V pin to a 3.3V pin.
-
-If the adapter has no DE or RE pin at all, it is the auto-direction kind. Then skip pin 47 and wire only 26, 33, 3V3, and GND. First power-up is an echo test only. It must not be able to start the pump or heater.
-
-Still open before that echo test is turned into commands:
-
-- Packet contents and how often status and logs go out.
-- Confirm the adapter in hand is 3.3V before any wire is attached.
+Nothing on the Heltec header connects to the Waveshare. No RS485 adapter. The two boards already share a radio, which is the same ESP-NOW channel the XIAO uses. The XIAO packet and the Heltec packet stay different so a command cannot be read as a humidity reading.
 
 Leave these alone:
 
 - Do not move the XIAO off channel 1.
-- Do not start the web page or the SD logger in the same step. Identify the board, add the RS485 module, and prove the wire first.
+- Do not start the web page or the SD logger in the same step. Prove the Heltec can be heard on channel 1 before any remote command can start a cycle.
 
 ## Cycle rules
 
@@ -174,7 +145,7 @@ No extra I2C pull-ups. The SHT31 modules already have them. Power both modules f
 - Local touch-screen operation is the priority.
 - One wired XIAO ESP32-C3 supplies both humidity readings by ESP-NOW.
 - The history viewer is a web page, not a native phone app, so iPhone and Android use the same page. Target is about 30 days, with both humidity readings about once a minute. Charts stay off the operator screen.
-- MeshCore on the Heltec WiFi LoRa 32 V4.3 is the remote-control path, not only a monitor. The board has the OLED. GPS is unplugged. The local link is the Waveshare RS485 socket through a 3.3V module on Heltec GPIO 26, 33, and 47. See "Home wiring" above.
+- MeshCore on the Heltec WiFi LoRa 32 V4.3 is the remote-control path, not only a monitor. The board has the OLED. GPS is unplugged. The local link is ESP-NOW channel 1, not I2C and not an RS485 adapter. See "Next: Heltec V4" above.
 - SD logging is still deferred. The clock module is the DS3231 described below.
 
 ## Future unattended recharge (not V1)
