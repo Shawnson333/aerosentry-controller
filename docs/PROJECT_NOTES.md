@@ -40,6 +40,10 @@ Link, revised 2026-11-11: no extra module, and no wires from the Heltec to the W
 
 No Heltec pins are wired for this link. Power it, leave USB-C for flashing, and leave the GNSS connector empty.
 
+The remote path is web page, then MeshCore over LoRa, then the Heltec, then ESP-NOW, then `StateMachine::command()` on the Waveshare. The page does not talk to the controller directly, and the Heltec does not energize a relay. A command is only a request. The controller still applies the sensor, saturation, and thermal checks. If the ESP-NOW link is quiet, remote starts are ignored. The touch screen can still stop the cycle.
+
+The basic operator page is started at `web/index.html`. Open that file in a browser. Its buttons match the touch screen and are disabled on purpose. MeshCore is not running on the Heltec yet, so the page must not pretend it can send a live command. History charts stay off this page. Do not turn the Heltec into a Wi-Fi access point to serve it.
+
 OLED stays. It is the radio's own status display: link, last command accepted or rejected. It is not a second operator screen.
 
 GPS is unplugged. Leave the GNSS pins unused: RX 38, TX 39, EN 34, RESET 42. A map pin later can be a typed-in hangar coordinate. Time already comes from the DS3231M.
@@ -55,7 +59,7 @@ On that same USB-only session the XL9535 and DS3231M did not ACK. That was alrea
 Leave these alone:
 
 - Do not move the XIAO off channel 1.
-- Do not start the web page or the SD logger in the same step. Prove the Heltec can be heard on channel 1 before any remote command can start a cycle.
+- Do not host the remote page on the Heltec. Its Wi-Fi radio must stay on channel 1. The 30-day history page and SD logger are still deferred. The operator page shell is `web/index.html` and is not connected.
 
 ## Cycle rules
 

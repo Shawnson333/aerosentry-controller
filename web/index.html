@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AeroSentry</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a1628;
+      --card: #12233d;
+      --text: #ffffff;
+      --muted: #9fb0c7;
+      --accent: #00ff88;
+      --warn: #ff4444;
+      --line: #243956;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 16px/1.45 "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+    h1 { margin: 0 0 4px; font-size: 28px; }
+    h2 { margin: 28px 0 8px; font-size: 18px; }
+    p, li { color: var(--muted); }
+    .banner, .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .banner { color: var(--accent); }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    button, .stop {
+      min-height: 52px;
+      border: 0;
+      border-radius: 10px;
+      font: inherit;
+      color: var(--bg);
+      background: var(--accent);
+    }
+    .stop { background: var(--warn); color: white; grid-column: 1 / -1; }
+    button:disabled, .stop:disabled { opacity: 0.45; }
+    label { display: block; margin-top: 12px; color: var(--muted); }
+    select { width: 100%; min-height: 40px; margin-top: 4px; }
+    dl { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; margin: 0; }
+    dt { color: var(--muted); }
+    dd { margin: 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>AeroSentry</h1>
+    <p>Remote controls. Charts stay off this page.</p>
+    <p class="banner">Not connected. This page cannot start or stop the unit yet.</p>
+
+    <h2>Status</h2>
+    <div class="card">
+      <dl>
+        <dt>Mode</dt><dd>Waiting for mesh</dd>
+        <dt>To-Engine</dt><dd>—</dd>
+        <dt>From-Engine</dt><dd>—</dd>
+        <dt>Chamber</dt><dd>—</dd>
+        <dt>Outputs</dt><dd>Pump off, heater off, fan off</dd>
+        <dt>Last reply</dt><dd>No command has been sent</dd>
+      </dl>
+    </div>
+
+    <h2>Cycle</h2>
+    <div class="grid">
+      <button type="button" disabled>Purge</button>
+      <button type="button" disabled>Manual dryer</button>
+      <button type="button" disabled>Auto dryer</button>
+      <button type="button" disabled>Recharge</button>
+      <button type="button" class="stop" disabled>Stop</button>
+    </div>
+    <label>Manual dryer on time
+      <select disabled>
+        <option>1 minute</option>
+        <option>2 minutes</option>
+        <option selected>3 minutes</option>
+        <option>4 minutes</option>
+        <option>5 minutes</option>
+      </select>
+    </label>
+    <label>Manual dryer rest
+      <select disabled>
+        <option selected>1 hour</option>
+        <option>2 hours</option>
+        <option>3 hours</option>
+      </select>
+    </label>
+    <label>Auto target, From-Engine
+      <select disabled>
+        <option>15%</option>
+        <option selected>20%</option>
+        <option>25%</option>
+        <option>30%</option>
+      </select>
+    </label>
+
+    <h2>How a command will travel</h2>
+    <ol>
+      <li>This page sends a command through MeshCore.</li>
+      <li>LoRa carries it to the Heltec at the unit.</li>
+      <li>The Heltec forwards it on ESP-NOW channel 1.</li>
+      <li>The Waveshare accepts or refuses it. The Heltec does not drive the relays.</li>
+    </ol>
+    <p>A start is ignored if the radio link is quiet, a required sensor is missing, or a thermal limit is already tripped. Stop is repeated until the controller answers. The touch screen can always stop the cycle.</p>
+  </main>
+</body>
+</html>
