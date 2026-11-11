@@ -23,10 +23,11 @@ From this directory (Windows):
 ## Implementation status
 
 - Direct ESP-IDF RGB driver and LVGL 8.3.11 work on the Type B display.
+- Checkpoint 2026-11-11, saved locally and not yet pushed: touch control, the XIAO link, relays K2-K4, the cycle rules, and the DS3231M driver are in `main`. A missing required sensor still blocks Start. Next is the Heltec WiFi LoRa 32 V4 as the MeshCore remote path. No Heltec firmware is in this repo yet. See `docs/PROJECT_NOTES.md`.
 - Main, warning, Manual Dryer Setup, Auto Cycle, and editable clock screens are implemented.
-- Mode start commands require the sensor that mode actually uses. Until the XIAO is connected, Start displays a sensor-unavailable warning.
+- Mode start commands require the sensor that mode actually uses. A missing required sensor blocks Start with a sensor-unavailable warning.
 - Purge and manual dryer watch To-Engine for the 40% hard-stop. Auto watches both humidity sensors. Recharge holds 240F on the chamber thermistor, then ends on three consecutive To-Engine readings at or below 15%, or at 3 hours. Chamber temperature above 260F, or either humidity-sensor temperature above 250F, stops all outputs. Dryer start warns if no purge has run in the last hour.
-- The Waveshare listens for the XIAO packet. Until a packet arrives, the screen stays on Sensors offline. Humidity readings can be tested before the thermistor's 10k resistor is installed. Recharge stays blocked until that chamber reading is valid.
+- The Waveshare listens for the XIAO packet on ESP-NOW channel 1. Until a packet arrives, the screen stays on Sensors offline. The chamber 10k divider is installed; Recharge stays blocked until that chamber reading is valid.
 - The DS3231M now provides battery-backed time at address 0x68. It is read at startup and once a minute. Set Clock adjustments are written immediately, and Done commits the displayed time even if no field changed. A saved software clock remains available as a fallback, but that fallback does not count time spent powered off.
 
 See `docs/PROJECT_NOTES.md` for behavior notes and future expansion.

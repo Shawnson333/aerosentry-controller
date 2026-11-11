@@ -1,5 +1,49 @@
 # AeroSentry Project Notes
 
+## Where we are — 2026-11-11
+
+Local controller work is saved on `main` at `c5023bb` ("Add DS3231M RTC and robust chamber thermistor reading with retry"). That commit was already local. Before this note, `main` was 6 commits ahead of `origin/main` and had not been pushed. The working tree was clean.
+
+Bench-confirmed and in the saved firmware:
+
+- Waveshare ESP32-S3 4.3-inch Type B, 800x480. Touch, main controls, clock screen, and the navy AeroSentry splash work. The upload port used so far is COM4.
+- XL9535 at 0x21, active-high, two data bytes (port 0 then port 1). K1 is unused. K2 pump, K3 heater, and K4 case fan are the confirmed outputs. K5 AUX stays off. K6-K8 stay reserved.
+- XIAO ESP32-C3 on ESP-NOW channel 1, MAC `AC:27:6E:FC:EF:A8`. Known-good image: `firmware/xiao-sensor-known-good.bin`. To-Engine is D4/D5, From-Engine is D8/D9, both at `0x44`. The chamber 10k divider is installed and `CHAMBER_DIVIDER_INSTALLED` is 1. Spread reject is 150 mV. A dual-port capture showed packets about once a second with no missing sequence numbers.
+- Cycle rules below are implemented: 40% To-Engine stop, 60-second purge qualification, purge reminder, 260F / 250F thermal stops, and admin (ten title taps). The recharge chamber retry window is in the same firmware, but it is not yet a finished heater-mat proof. See the next list.
+
+Coded in that same commit, not yet written up as a finished bench proof:
+
+- DS3231M driver at 0x68. It is read at startup, refreshed once a minute, and written from Set Clock and from Done. First installation still needs Set Clock, then Done, with the coin cell installed. Power-loss hold of the purge age has not been recorded as confirmed.
+- Chamber retry: after a valid chamber sample, a brief invalid reading holds the previous heater command for up to 6 seconds and cannot newly enable heat. The real heater mat is not in this test yet. When it arrives, watch K3 switching EMI on the thermistor lead and whether a 6-second heat hold near 240F overshoots toward 260F.
+
+Still deferred, on purpose:
+
+- SD card logging. `src/logging.cpp` is a stub. The intended file is `/hangar.csv`.
+- History web page. About 30 days, both humidities about once a minute. Charts stay off the operator screen.
+- Unattended recharge valves. Do not assign K6-K8 until that sequence exists.
+- Heltec V4. No board env, pins, or packet code in this repo. That is the next task.
+
+Do not reopen these while adding the radio: the XL9535 is not a PCF8574, K1 does not drive, the XIAO stays on ESP-NOW channel 1, and a remote command must not become a second state machine.
+
+## Next: Heltec V4
+
+The board in hand is the Heltec WiFi LoRa 32 V4: ESP32-S3R2, 16MB flash, 2MB PSRAM, SX1262. It is not wired and not in `platformio.ini`. MeshCore already has V4 targets in [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore) `variants/heltec_v4/platformio.ini`. Heltec's own flash note: V4.2 selects `USE_GC1109_PA`; V4.3 selects `USE_KCT8103L_PA`. Read the silkscreen before flashing. OLED and TFT are different builds. In that MeshCore variant, OLED I2C is SDA 17 / SCL 18 and TFT I2C is SDA 4 / SCL 3. LoRa SPI there is SCLK 9, MOSI 10, MISO 11, NSS 8, RESET 12, BUSY 13, DIO1 14. Those pins belong to the Heltec, not the Waveshare.
+
+Role, already decided: MeshCore is the remote path, not only a monitor. It should carry the same start, stop, and mode actions as the touch screen, plus warnings, status, and periodic log packets so the phone page can stay current away from the unit. Local touch remains the priority. Remote start and stop must call the existing `StateMachine::command()` path so the sensor, saturation, and thermal checks still apply.
+
+Not decided. Settle these on the bench before writing controller code:
+
+- How the Heltec links to the Waveshare: USB serial, a UART between the two boards, or something else. Do not put the Heltec on the Waveshare I2C bus. GPIO 8/9 already has the GT911, CH422G, XL9535, and DS3231M.
+- Whether the first flash is stock MeshCore companion (USB, BLE, or Wi-Fi) just to prove the radio, or an AeroSentry firmware under `nodes/` from the start. Stock companion firmware will not speak AeroSentry commands.
+- OLED versus TFT, and V4.2 versus V4.3, from the board in hand.
+- Packet contents and how often status and logs go out. Do not invent a second control path that can energize K2-K4 on its own.
+
+Leave these alone:
+
+- Do not enable MeshCore's Heltec ESP-NOW bridge while the XIAO link is on channel 1.
+- Do not move the XIAO off channel 1 to make room for the Heltec. The Heltec's job is LoRa, not the sensor bus.
+- Do not start the web page or the SD logger in the same step. Identify the board, flash it, and prove the radio first.
+
 ## Cycle rules
 
 These setpoints are best guesses and will be tuned after testing. All sensors are logged during every cycle. Only the sensor a mode uses for control can stop that mode.
@@ -30,7 +74,7 @@ The current initialization follows the public XL9535 example at https://github.c
 2. Register 0x02 <= 0x00, 0x00: both output ports off. This board is active-high.
 3. Register 0x06 <= 0x00, 0x00: both ports are outputs.
 
-K1 stays unused. K2 is the pump, K3 the heater, K4 the case fan, and K5 AUX stays off. K6-K8 stay reserved. The driver rejects K1 and K6-K8. K2 was confirmed on P0.1. K3-K5 follow that order and still need a click test.
+K1 stays unused. K2 is the pump, K3 the heater, K4 the case fan, and K5 AUX stays off. K6-K8 stay reserved. The driver rejects K1 and K6-K8. K2 was confirmed on P0.1. Later bench work confirmed K3 heater and K4 case fan on the following bits. K5 AUX remains unused and was not given a separate click test.
 
 K4 runs while the pump is on, for the entire recharge cycle, and also when the Waveshare chip temperature stays at or above 65C. It turns off at 55C if the pump is off and recharge is not running. That chip reading is the ESP32-S3 die, not the air in the case, so the thresholds are a starting guess.
 
@@ -92,7 +136,7 @@ No extra I2C pull-ups. The SHT31 modules already have them. Power both modules f
 - Local touch-screen operation is the priority.
 - One wired XIAO ESP32-C3 supplies both humidity readings by ESP-NOW.
 - The history viewer is a web page, not a native phone app, so iPhone and Android use the same page. Target is about 30 days, with both humidity readings about once a minute. Charts stay off the operator screen.
-- MeshCore on the Heltec radio is the remote-control path, not only a monitor. It should carry the same start, stop, and mode actions as the touch screen, plus warnings, status, and periodic log packets so the page stays current when the phone is not next to the unit. That work starts now with the Heltec V4 in hand.
+- MeshCore on the Heltec WiFi LoRa 32 V4 is the remote-control path, not only a monitor. It should carry the same start, stop, and mode actions as the touch screen, plus warnings, status, and periodic log packets so the page stays current when the phone is not next to the unit. The board is in hand. Nothing for it is in this repo yet. Start at "Next: Heltec V4" above. Do not begin that work by changing the XIAO channel or the Waveshare I2C bus.
 - SD logging is still deferred. The clock module is the DS3231 described below.
 
 ## Future unattended recharge (not V1)
