@@ -32,7 +32,7 @@ void setup() {
     delay(1000);
     Serial.println(F("\n=== AeroSentry Controller Starting ==="));
 
-    // Shared I2C: GT911 touch + Waveshare CH422G (+ relay board later).
+    // Shared I2C: GT911 touch + CH422G + XL9535 relays + DS3231M RTC.
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
     Serial.println(F("I2C bus initialized (GPIO 8/9)"));
 

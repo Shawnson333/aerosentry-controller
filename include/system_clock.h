@@ -12,13 +12,14 @@ enum class ClockField {
     DAY
 };
 
-// Software clock. Starts from build time, then advances with millis().
-// A saved time is restored after reboot, but time spent powered off is not counted yet.
+// Battery-backed DS3231M clock with a saved software-clock fallback.
+// The clock editor updates the RTC when it is connected.
 void systemClockBegin();
 void systemClockSave();
 time_t systemClockEpoch();
 void systemClockSavePurge();
 time_t systemClockSavedPurge();
+void systemClockCommit();
 void systemClockAdjust(ClockField field, int delta);
 int systemClockGet(ClockField field);
 void systemClockFormat(char *buffer, size_t size);

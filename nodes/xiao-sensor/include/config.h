@@ -15,14 +15,17 @@
 /* Tried on each bus. ADDR to GND is 0x44. ADDR to 3V3 is 0x45. */
 
 /* 3V3 -- thermistor -- D1 -- 10k -- GND.
-   Leave this 0 until the 10k is installed. A missing pulldown can look like
-   a real temperature, so the chamber flag stays clear and Recharge stays blocked. */
-#define CHAMBER_DIVIDER_INSTALLED  0
+   Keep this 1 only while the external pulldown is installed. A missing pulldown
+   can look like a real temperature, so Recharge requires the chamber-valid flag. */
+#define CHAMBER_DIVIDER_INSTALLED  1
 #define NTC_SERIES_OHMS     10000.0f
 #define NTC_R0_OHMS         100000.0f
 #define NTC_BETA            3950.0f
 #define NTC_T0_C            25.0f
 #define NTC_VCC             3.3f
+/* Quiet bench spread was 1-12 mV. Finger contact reached 36 mV while the
+   average remained a valid temperature. Reject only a disconnect-like swing. */
+#define NTC_MAX_SPREAD_MV   150
 
 #define SEND_INTERVAL_MS    1000UL
 

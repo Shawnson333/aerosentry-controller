@@ -15,7 +15,8 @@ struct SensorReading {
     float fromEngineRH;
     float fromEngineTemp;    // Celsius
     float chamberTemp;       // Celsius, thermistor on the XIAO
-    uint32_t timestamp;      // millis() when the last packet arrived
+    uint32_t timestamp;        // millis() when the last packet arrived
+    uint32_t chamberTimestamp; // millis() when the last valid chamber sample arrived
     bool toValid;
     bool fromValid;
     bool chamberValid;
@@ -30,6 +31,8 @@ bool sensorPacketFresh();
 bool toEngineReady();
 bool fromEngineReady();
 bool chamberReady();
+// Brief recovery window; may hold the prior heater state, never newly enable heat.
+bool chamberRetryPending();
 bool toEngineSampleReady();
 bool fromEngineSampleReady();
 

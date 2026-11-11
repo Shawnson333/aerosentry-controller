@@ -1,4 +1,4 @@
-/* Clock/date adjustment screen for the software clock. */
+/* Clock/date adjustment screen for the DS3231M and fallback system clock. */
 #include "ui.h"
 #include "system_clock.h"
 
@@ -32,6 +32,7 @@ static void cbAdjust(lv_event_t* e) {
 
 static void cbDone(lv_event_t* e) {
     (void)e;
+    systemClockCommit(); // Also initializes a new RTC when no +/- adjustment was needed.
     uiShowMain();
 }
 

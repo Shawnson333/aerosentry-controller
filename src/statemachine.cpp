@@ -417,6 +417,11 @@ void StateMachine::checkThermal() {
 }
 
 void StateMachine::regulateHeater() {
+    if (chamberRetryPending()) {
+        // Hold the previous command briefly; never newly enable heat without a sample.
+        // sensorsOkForMode() stops the cycle and all outputs after CHAMBER_RETRY_MS.
+        return;
+    }
     if (!chamberReady()) {
         _heaterOn = false;
         return;
@@ -513,7 +518,8 @@ bool StateMachine::sensorsOkForMode() const {
         case SystemMode::DRYER_MANUAL:
             return toEngineReady();
         case SystemMode::RECHARGE:
-            return toEngineReady() && chamberReady();
+            // A retry may hold the previous heater command, but cannot newly enable it.
+            return toEngineReady() && (chamberReady() || chamberRetryPending());
         case SystemMode::DRYER_AUTO:
             return toEngineReady() && fromEngineReady();
         default:
@@ -604,7 +610,9 @@ const char* StateMachine::statusText() const {
         case SystemMode::RECHARGE:
             switch (_rechargePhase) {
                 case RechargePhase::HEATING:
-                    if (chamberReady()) {
+                    if (chamberRetryPending()) {
+                        snprintf(buf, sizeof(buf), "Chamber retry, 6s max");
+                    } else if (chamberReady()) {
                         snprintf(buf, sizeof(buf), "%s %dF, now %.0fF",
                                  _heaterOn ? "Heating to" : "Holding",
                                  RECHARGE_TARGET_TEMP_F,

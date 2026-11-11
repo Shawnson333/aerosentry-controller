@@ -36,7 +36,16 @@ bool fromEngineReady() {
 }
 
 bool chamberReady() {
-    return sensorPacketFresh() && sensors.chamberValid;
+    if (!sensorPacketFresh() || !sensors.chamberValid || sensors.chamberTimestamp == 0) {
+        return false;
+    }
+    return (millis() - sensors.chamberTimestamp) <= SAMPLE_MAX_AGE_MS;
+}
+
+bool chamberRetryPending() {
+    if (chamberReady() || sensors.chamberTimestamp == 0) return false;
+    // This also catches radio loss once the last valid chamber sample ages out.
+    return (millis() - sensors.chamberTimestamp) <= CHAMBER_RETRY_MS;
 }
 
 bool toEngineSampleReady() {
@@ -109,15 +118,24 @@ bool sensorsUpdate() {
     }
     if (sensors.chamberValid) {
         sensors.chamberTemp = fromCenti(packet.chamberTempCenti);
+        sensors.chamberTimestamp = millis();
     }
     sensors.timestamp = millis();
     sensors.valid = true;
 
-    static uint32_t lastLog = 0;
-    if (millis() - lastLog >= 5000UL) {
-        lastLog = millis();
-        Serial.printf("ESP-NOW seq %lu flags 0x%02X\n",
-                      (unsigned long)packet.sequence, packet.flags);
+    const uint32_t logTime = millis();
+    Serial.printf("%lu ms ESP-NOW seq %lu flags 0x%02X",
+                  (unsigned long)logTime, (unsigned long)packet.sequence, packet.flags);
+    if (sensors.chamberValid) {
+        Serial.printf(" chamber %.1fF", sensors.chamberTemp * 9.0f / 5.0f + 32.0f);
+    } else if (chamberRetryPending()) {
+        Serial.print(F(" chamber retry"));
+    } else {
+        Serial.print(F(" chamber --"));
     }
+    if (sensors.chamberTimestamp != 0) {
+        Serial.printf(" age %lu ms", (unsigned long)(logTime - sensors.chamberTimestamp));
+    }
+    Serial.println();
     return true;
 }

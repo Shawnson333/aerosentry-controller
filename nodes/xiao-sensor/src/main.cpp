@@ -12,6 +12,8 @@
 
 static uint32_t sequenceNumber = 0;
 static bool radioReady = false;
+static int chamberMillivolts = -1;
+static int chamberSpread = -1;
 
 static uint8_t crc8(const uint8_t *data, int length) {
     uint8_t crc = 0xFF;
@@ -65,19 +67,32 @@ static bool readSht31(uint8_t sda, uint8_t scl, uint8_t address,
 }
 
 static bool readChamber(float &tempC) {
+    const int sampleCount = 8;
+    int samples[sampleCount];
     int low = 4096;
     int high = 0;
-    long total = 0;
-    for (int i = 0; i < 5; ++i) {
-        int sample = analogReadMilliVolts(THERMISTOR_ADC_PIN);
-        if (sample < low) low = sample;
-        if (sample > high) high = sample;
-        total += sample;
-        delay(4);
+    for (int i = 0; i < sampleCount; ++i) {
+        samples[i] = analogReadMilliVolts(THERMISTOR_ADC_PIN);
+        if (samples[i] < low) low = samples[i];
+        if (samples[i] > high) high = samples[i];
+        delay(2);
     }
-    if ((high - low) > 12) return false;
+    chamberSpread = high - low;
 
-    int millivolts = (int)(total / 5);
+    for (int i = 1; i < sampleCount; ++i) {
+        const int value = samples[i];
+        int j = i;
+        while (j > 0 && samples[j - 1] > value) {
+            samples[j] = samples[j - 1];
+            --j;
+        }
+        samples[j] = value;
+    }
+    long total = 0;
+    for (int i = 1; i < sampleCount - 1; ++i) total += samples[i];
+    const int millivolts = (int)(total / (sampleCount - 2));
+    chamberMillivolts = millivolts;
+    if (chamberSpread > NTC_MAX_SPREAD_MV) return false;
     if (millivolts < 80 || millivolts > 3100) return false;
 
     float volts = millivolts / 1000.0f;
@@ -161,12 +176,17 @@ void loop() {
         packet.fromEngineTempCenti = toCenti(tempC);
     }
     static uint8_t chamberStable = 0;
+    static uint8_t chamberFaults = 0;
     if (CHAMBER_DIVIDER_INSTALLED && readChamber(tempC)) {
+        chamberFaults = 0;
         if (chamberStable < 3) chamberStable++;
     } else {
-        chamberStable = 0;
+        if (chamberFaults < 3) chamberFaults++;
+        // One or two isolated bad samples recover on the next good sample.
+        // Three consecutive faults require three good samples to requalify.
+        if (chamberFaults >= 3) chamberStable = 0;
     }
-    if (chamberStable >= 3) {
+    if (chamberStable >= 3 && chamberFaults == 0) {
         packet.flags |= SENSOR_FLAG_CHAMBER_VALID;
         packet.chamberTempCenti = toCenti(tempC);
     }
@@ -177,10 +197,11 @@ void loop() {
         sent = esp_now_send(broadcast, (uint8_t *)&packet, sizeof(packet)) == ESP_OK;
     }
 
-    Serial.printf("seq %lu flags 0x%02X toRH %.1f fromRH %.1f sent %d\n",
-                  (unsigned long)packet.sequence, packet.flags,
+    Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.1f fromRH %.1f chamberC %.1f mV %d spread %d stable %u faults %u sent %d\n",
+                  (unsigned long)millis(), (unsigned long)packet.sequence, packet.flags,
                   (packet.flags & SENSOR_FLAG_TO_VALID) ? toHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_FROM_VALID) ? fromHumidity : -1.0f,
-                  sent ? 1 : 0);
+                  (packet.flags & SENSOR_FLAG_CHAMBER_VALID) ? tempC : -1.0f,
+                  chamberMillivolts, chamberSpread, chamberStable, chamberFaults, sent ? 1 : 0);
     delay(SEND_INTERVAL_MS);
 }

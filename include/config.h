@@ -9,7 +9,7 @@
    Change hardware settings in ONE place only.
    ======================================================================== */
 
-/* --- I2C Bus (shared by display + relay expander) --- */
+/* --- I2C Bus (shared by display + relay expander + RTC) --- */
 #define I2C_SDA_PIN     8
 #define I2C_SCL_PIN     9
 
@@ -23,6 +23,9 @@
    K1 / P0.0 does not latch or drive. Leave it unused. */
 #define RELAY_DRIVER_ENABLED    1
 #define XL9535_ADDR             0x21
+
+/* --- DS3231M real-time clock, on the shared I2C bus --- */
+#define DS3231_ADDR             0x68
 
 /* Relay map, XL9535 port 0, active-high. K1 is P0.0 and does not drive.
    K2 was confirmed on P0.1. K3-K8 follow that order from the port-0 sweep.
@@ -46,6 +49,7 @@
 #define GRACE_MS                2000UL  // Ignore saturation briefly after a cycle starts
 #define SENSOR_STALE_MS         15000UL // No packet this long = sensor offline
 #define SAMPLE_MAX_AGE_MS       3000UL  // Sample decisions need a reading this fresh
+#define CHAMBER_RETRY_MS        6000UL  // Hold prior heat briefly, then stop if no valid sample
 
 /* Purge and manual dryer run until the user stops them or To-Engine stays
    above SAT_LIMIT_RH for SAT_HOLD_MS. They do not end on a fixed timer. */
