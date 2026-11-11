@@ -21,28 +21,37 @@ Still deferred, on purpose:
 - SD card logging. `src/logging.cpp` is a stub. The intended file is `/hangar.csv`.
 - History web page. About 30 days, both humidities about once a minute. Charts stay off the operator screen.
 - Unattended recharge valves. Do not assign K6-K8 until that sequence exists.
-- Heltec V4. No board env, pins, or packet code in this repo. That is the next task.
+- Heltec V4 OLED board is in hand and not in the firmware yet. The local link is the Waveshare RS485 port. GPS should be unplugged. Details are in "Next: Heltec V4".
 
 Do not reopen these while adding the radio: the XL9535 is not a PCF8574, K1 does not drive, the XIAO stays on ESP-NOW channel 1, and a remote command must not become a second state machine.
 
 ## Next: Heltec V4
 
-The board in hand is the Heltec WiFi LoRa 32 V4: ESP32-S3R2, 16MB flash, 2MB PSRAM, SX1262. It is not wired and not in `platformio.ini`. MeshCore already has V4 targets in [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore) `variants/heltec_v4/platformio.ini`. Heltec's own flash note: V4.2 selects `USE_GC1109_PA`; V4.3 selects `USE_KCT8103L_PA`. Read the silkscreen before flashing. OLED and TFT are different builds. In that MeshCore variant, OLED I2C is SDA 17 / SCL 18 and TFT I2C is SDA 4 / SCL 3. LoRa SPI there is SCLK 9, MOSI 10, MISO 11, NSS 8, RESET 12, BUSY 13, DIO1 14. Those pins belong to the Heltec, not the Waveshare.
+The board in hand is the Heltec WiFi LoRa 32 V4 with the 0.96-inch OLED, not the TFT. Listing facts: ESP32-S3R2, 2MB PSRAM, 16MB flash, SX1262, about 27 dBm transmit, USB-C, solar connector, and a GNSS port. It is not wired and not in `platformio.ini`. MeshCore already has an OLED target in [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore) `variants/heltec_v4/platformio.ini` (`heltec_v4_oled`, SDA 17 / SCL 18). The product page also says Meshtastic. Do not flash Meshtastic. This project stays on MeshCore. Heltec's own flash note still applies: V4.2 selects `USE_GC1109_PA`; V4.3 selects `USE_KCT8103L_PA`. The 27 dBm listing does not say which PA chip is fitted. Read the silkscreen before flashing. LoRa SPI in that MeshCore variant is SCLK 9, MOSI 10, MISO 11, NSS 8, RESET 12, BUSY 13, DIO1 14. Those pins belong to the Heltec, not the Waveshare.
 
-Role, already decided: MeshCore is the remote path, not only a monitor. It should carry the same start, stop, and mode actions as the touch screen, plus warnings, status, and periodic log packets so the phone page can stay current away from the unit. Local touch remains the priority. Remote start and stop must call the existing `StateMachine::command()` path so the sensor, saturation, and thermal checks still apply.
+Role, already decided: the Heltec is the LoRa coprocessor. MeshCore carries start, stop, and mode actions, plus warnings, status, and periodic log packets, so the phone page can stay current away from the unit. It does not drive relays. Remote start and stop must call the existing `StateMachine::command()` path so the sensor, saturation, and thermal checks still apply. If the local link is down, ignore remote starts. The touch screen still stops the cycle.
 
-Not decided. Settle these on the bench before writing controller code:
+Link, decided 2026-11-11: use the Waveshare RS485 port, not I2C, not USB-C, and not another ESP-NOW radio.
 
-- How the Heltec links to the Waveshare: USB serial, a UART between the two boards, or something else. Do not put the Heltec on the Waveshare I2C bus. GPIO 8/9 already has the GT911, CH422G, XL9535, and DS3231M.
-- Whether the first flash is stock MeshCore companion (USB, BLE, or Wi-Fi) just to prove the radio, or an AeroSentry firmware under `nodes/` from the start. Stock companion firmware will not speak AeroSentry commands.
-- OLED versus TFT, and V4.2 versus V4.3, from the board in hand.
-- Packet contents and how often status and logs go out. Do not invent a second control path that can energize K2-K4 on its own.
+- The Waveshare RS485 demo uses Serial1 on GPIO 43 RX and GPIO 44 TX at 115200. Those pins already go to the onboard RS485 transceiver, so the connector is A/B, not TTL. Put a 3.3V RS485 module on two free Heltec header pins. Connect A to A, B to B, and GND to GND. Do not assume the connector pin order. Do not power that module from the relay coil 5V.
+- Do not put the Heltec on the Waveshare I2C bus, and do not buy a splitter or mux to do it. GPIO 8/9 already has the GT911 at 0x5D, the CH422G, the XL9535 at 0x21, and the DS3231M at 0x68. There is no address conflict. The relay board's second I2C header is already a parallel plug. A passive splitter only adds capacitance. A mux is for a later address clash or a flaky extra sensor, not for talking to another computer. A stuck I2C slave can hang touch and the relays. The Heltec is also an I2C master for its own OLED.
+- Do not connect the two USB-C ports. The Waveshare USB-C is the native programming port, COM4. On this board, USB D-/D+ can be switched over to CAN, which turns USB off. It is not a host port, and a C-to-C cable between two device ports will not enumerate. Leave both USB-C ports for flashing.
+- Do not copy the XIAO pattern. The XIAO has to sit out on the engine lines, so ESP-NOW channel 1 is the right link for sensors. The Heltec sits with the controller. Its useful radio is the SX1262, toward the phone. A second ESP-NOW peer can drop or repeat a start or stop, and it shares the 2.4 GHz radio that the XIAO already uses. Do not enable MeshCore's Heltec ESP-NOW bridge.
+
+OLED stays. It is the radio's own status display: link, last command accepted or rejected. It is not a second operator screen.
+
+GPS comes off. This unit does not move. A map pin can be a typed-in hangar coordinate later. Time already comes from the DS3231M, and a hangar roof can hide the sky. Unplug the GNSS module and leave its pins unused. MeshCore's V4 GPS pins are RX 38, TX 39, EN 34, and RESET 42.
+
+Still open before controller code:
+
+- V4.2 versus V4.3, from the silkscreen.
+- Which two Heltec header pins feed the RS485 module. Do not use LoRa, OLED, USB, PA, or the GNSS pins. GPIO 5 is a PA control on V4.3.1.
+- Packet contents and how often status and logs go out.
 
 Leave these alone:
 
-- Do not enable MeshCore's Heltec ESP-NOW bridge while the XIAO link is on channel 1.
-- Do not move the XIAO off channel 1 to make room for the Heltec. The Heltec's job is LoRa, not the sensor bus.
-- Do not start the web page or the SD logger in the same step. Identify the board, flash it, and prove the radio first.
+- Do not move the XIAO off channel 1.
+- Do not start the web page or the SD logger in the same step. Identify the board, add the RS485 module, and prove the wire first.
 
 ## Cycle rules
 
@@ -136,7 +145,7 @@ No extra I2C pull-ups. The SHT31 modules already have them. Power both modules f
 - Local touch-screen operation is the priority.
 - One wired XIAO ESP32-C3 supplies both humidity readings by ESP-NOW.
 - The history viewer is a web page, not a native phone app, so iPhone and Android use the same page. Target is about 30 days, with both humidity readings about once a minute. Charts stay off the operator screen.
-- MeshCore on the Heltec WiFi LoRa 32 V4 is the remote-control path, not only a monitor. It should carry the same start, stop, and mode actions as the touch screen, plus warnings, status, and periodic log packets so the page stays current when the phone is not next to the unit. The board is in hand. Nothing for it is in this repo yet. Start at "Next: Heltec V4" above. Do not begin that work by changing the XIAO channel or the Waveshare I2C bus.
+- MeshCore on the Heltec WiFi LoRa 32 V4 is the remote-control path, not only a monitor. The board in hand has the OLED. GPS is not needed and should be unplugged. The local link is the Waveshare RS485 port, not I2C, USB-C, or ESP-NOW. See "Next: Heltec V4" above.
 - SD logging is still deferred. The clock module is the DS3231 described below.
 
 ## Future unattended recharge (not V1)

@@ -23,7 +23,7 @@ From this directory (Windows):
 ## Implementation status
 
 - Direct ESP-IDF RGB driver and LVGL 8.3.11 work on the Type B display.
-- Checkpoint 2026-11-11, saved locally and not yet pushed: touch control, the XIAO link, relays K2-K4, the cycle rules, and the DS3231M driver are in `main`. A missing required sensor still blocks Start. Next is the Heltec WiFi LoRa 32 V4 as the MeshCore remote path. No Heltec firmware is in this repo yet. See `docs/PROJECT_NOTES.md`.
+- Checkpoint 2026-11-11: touch control, the XIAO link, relays K2-K4, the cycle rules, and the DS3231M driver are in `main`. Next is the Heltec WiFi LoRa 32 V4 OLED board as the MeshCore radio. It links on the Waveshare RS485 port, not I2C, USB-C, or ESP-NOW. No Heltec firmware is in this repo yet. See `docs/PROJECT_NOTES.md`.
 - Main, warning, Manual Dryer Setup, Auto Cycle, and editable clock screens are implemented.
 - Mode start commands require the sensor that mode actually uses. A missing required sensor blocks Start with a sensor-unavailable warning.
 - Purge and manual dryer watch To-Engine for the 40% hard-stop. Auto watches both humidity sensors. Recharge holds 240F on the chamber thermistor, then ends on three consecutive To-Engine readings at or below 15%, or at 3 hours. Chamber temperature above 260F, or either humidity-sensor temperature above 250F, stops all outputs. Dryer start warns if no purge has run in the last hour.
