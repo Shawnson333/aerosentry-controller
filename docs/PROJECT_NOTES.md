@@ -21,7 +21,7 @@ Still deferred, on purpose:
 - SD card logging. `src/logging.cpp` is a stub. The intended file is `/hangar.csv`.
 - History web page. About 30 days, both humidities about once a minute. Charts stay off the operator screen.
 - Unattended recharge valves. Do not assign K6-K8 until that sequence exists.
-- Heltec WiFi LoRa 32 V4.3 OLED board is in hand. GPS is unplugged. No extra adapter and no wires between the Heltec and the Waveshare. The local link is ESP-NOW channel 1, a different packet from the XIAO. Details are under "Next: Heltec V4". No Heltec firmware is in this repo yet.
+- Heltec WiFi LoRa 32 V4.3 OLED board is in hand. GPS is unplugged. No wires to the Waveshare. On 2026-11-11 the Heltec beacon was heard by the controller on ESP-NOW channel 1, sequence 46 through 61 with no gaps. Heltec MAC `10:BD:A3:5A:7C:94` on COM6. Waveshare MAC `94:A9:90:DF:BB:54` on COM4. The beacon cannot start a cycle. No Heltec command firmware yet.
 
 Do not reopen these while adding the radio: the XL9535 is not a PCF8574, K1 does not drive, the XIAO stays on ESP-NOW channel 1, and a remote command must not become a second state machine.
 
@@ -46,7 +46,11 @@ GPS is unplugged. Leave the GNSS pins unused: RX 38, TX 39, EN 34, RESET 42. A m
 
 ## No Heltec wiring for the controller link
 
-Nothing on the Heltec header connects to the Waveshare. No RS485 adapter. The two boards already share a radio, which is the same ESP-NOW channel the XIAO uses. The XIAO packet and the Heltec packet stay different so a command cannot be read as a humidity reading.
+Nothing on the Heltec header connects to the Waveshare. The hear test is in `nodes/heltec-radio`. It broadcasts `LinkBeacon` once a second. The controller prints it and does not treat it as a sensor reading or a command.
+
+Ports seen on this computer: Waveshare COM4, Heltec COM6. Both are native USB, so those numbers can swap after a replug. Confirm by the boot line, not by the port number. The controller says `AeroSentry Controller Starting`. The Heltec beacon says `AeroSentry Heltec V4.3 beacon`.
+
+On that same USB-only session the XL9535 and DS3231M did not ACK. That was already true before the beacon firmware was flashed. The display, touch, and ESP-NOW listener still started, and no relay writes were made.
 
 Leave these alone:
 

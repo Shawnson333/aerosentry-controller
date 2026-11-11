@@ -6,6 +6,7 @@
 
 #include "sensors.h"
 #include "config.h"
+#include "link_beacon.h"
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -16,6 +17,9 @@ SensorReading sensors = {};
 static portMUX_TYPE sensorMux = portMUX_INITIALIZER_UNLOCKED;
 static SensorPacket latestPacket = {};
 static volatile bool packetReady = false;
+static LinkBeacon latestBeacon = {};
+static uint8_t beaconMac[6] = {};
+static volatile bool beaconReady = false;
 static bool radioReady = false;
 
 static bool ageOk(uint32_t maxAgeMs) {
@@ -61,8 +65,24 @@ static float fromCenti(int16_t value) {
 }
 
 static void onEspNowReceive(const uint8_t *mac, const uint8_t *data, int len) {
-    (void)mac;
-    if (data == nullptr || len != (int)sizeof(SensorPacket)) return;
+    if (data == nullptr) return;
+
+    /* Hear test only. A beacon must not update sensor state or start a cycle. */
+    if (len == (int)sizeof(LinkBeacon)) {
+        LinkBeacon incoming;
+        memcpy(&incoming, data, sizeof(incoming));
+        if (incoming.magic != AEROSENTRY_BEACON_MAGIC || incoming.kind != AEROSENTRY_BEACON_KIND) {
+            return;
+        }
+        portENTER_CRITICAL(&sensorMux);
+        latestBeacon = incoming;
+        if (mac != nullptr) memcpy(beaconMac, mac, sizeof(beaconMac));
+        beaconReady = true;
+        portEXIT_CRITICAL(&sensorMux);
+        return;
+    }
+
+    if (len != (int)sizeof(SensorPacket)) return;
 
     SensorPacket incoming;
     memcpy(&incoming, data, sizeof(incoming));
@@ -97,6 +117,19 @@ bool sensorsBegin() {
 }
 
 bool sensorsUpdate() {
+    if (radioReady && beaconReady) {
+        LinkBeacon beacon;
+        uint8_t mac[6] = {};
+        portENTER_CRITICAL(&sensorMux);
+        beacon = latestBeacon;
+        memcpy(mac, beaconMac, sizeof(mac));
+        beaconReady = false;
+        portEXIT_CRITICAL(&sensorMux);
+        Serial.printf("Heltec beacon seq %lu from %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      (unsigned long)beacon.sequence,
+                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+
     if (!radioReady || !packetReady) return false;
 
     SensorPacket packet;
