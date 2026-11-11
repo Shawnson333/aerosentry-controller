@@ -7,6 +7,8 @@
 #include "sensors.h"
 #include "config.h"
 #include "link_beacon.h"
+#include "link_packet.h"
+#include "radio_link.h"
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -71,14 +73,19 @@ static void onEspNowReceive(const uint8_t *mac, const uint8_t *data, int len) {
     if (len == (int)sizeof(LinkBeacon)) {
         LinkBeacon incoming;
         memcpy(&incoming, data, sizeof(incoming));
-        if (incoming.magic != AEROSENTRY_BEACON_MAGIC || incoming.kind != AEROSENTRY_BEACON_KIND) {
+        if (incoming.magic == AEROSENTRY_BEACON_MAGIC && incoming.kind == AEROSENTRY_BEACON_KIND) {
+            portENTER_CRITICAL(&sensorMux);
+            latestBeacon = incoming;
+            if (mac != nullptr) memcpy(beaconMac, mac, sizeof(beaconMac));
+            beaconReady = true;
+            portEXIT_CRITICAL(&sensorMux);
+            radioLinkNotePeer(mac);
             return;
         }
-        portENTER_CRITICAL(&sensorMux);
-        latestBeacon = incoming;
-        if (mac != nullptr) memcpy(beaconMac, mac, sizeof(beaconMac));
-        beaconReady = true;
-        portEXIT_CRITICAL(&sensorMux);
+    }
+
+    if (len >= 2 && data[0] == AEROSENTRY_LINK_MAGIC) {
+        radioLinkAccept(mac, data, len);
         return;
     }
 

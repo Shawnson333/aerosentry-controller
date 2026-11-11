@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AeroSentry history</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0a1628; --card: #12233d; --text: #fff; --muted: #9fb0c7; --accent: #00ff88; --warn: #ff4444; --line: #243956; --cyan: #7fd7ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.45 "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    main { max-width: 720px; margin: 0 auto; padding: 20px 16px 48px; }
+    h1 { margin: 0; font-size: 28px; }
+    nav { display: flex; gap: 16px; margin: 8px 0 16px; }
+    a { color: var(--accent); }
+    .banner, .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 16px; }
+    .banner { color: var(--accent); }
+    p, .legend { color: var(--muted); }
+    svg { width: 100%; height: 220px; display: block; }
+    .swatch { display: inline-block; width: 12px; height: 12px; margin-right: 6px; border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>History</h1>
+    <nav><a href="index.html">Controls</a><a href="history.html">History</a></nav>
+    <p class="banner">Sample drawing only. No hangar log has been recorded yet.</p>
+    <section class="card">
+      <h2>Humidity</h2>
+      <p class="legend"><span class="swatch" style="background:#00ff88"></span>To-Engine <span class="swatch" style="background:#7fd7ff"></span>From-Engine</p>
+      <svg id="humidity" viewBox="0 0 640 220" role="img" aria-label="Sample humidity chart"></svg>
+    </section>
+    <section class="card">
+      <h2>Chamber temperature</h2>
+      <p class="legend"><span class="swatch" style="background:#ff4444"></span>Chamber, Fahrenheit</p>
+      <svg id="chamber" viewBox="0 0 640 220" role="img" aria-label="Sample chamber chart"></svg>
+    </section>
+  </main>
+  <script>
+    const hours = Array.from({length: 24}, (_, i) => i);
+    const to = hours.map(h => 52 - h * 0.8 + Math.sin(h / 3) * 2);
+    const from = hours.map(h => 49 - h * 0.55 + Math.cos(h / 4) * 1.5);
+    const chamber = hours.map(h => h < 16 ? 74 + h * 0.4 : 80 + (h - 16) * 18);
+
+    function chart(id, series, min, max) {
+      const svg = document.getElementById(id);
+      const left = 36, right = 620, top = 16, bottom = 190;
+      const x = i => left + (i / 23) * (right - left);
+      const y = v => bottom - ((v - min) / (max - min)) * (bottom - top);
+      let marks = "";
+      for (let tick = min; tick <= max; tick += (max - min) / 4) {
+        const yy = y(tick);
+        marks += `<line x1="${left}" y1="${yy}" x2="${right}" y2="${yy}" stroke="#243956"/>`;
+        marks += `<text x="4" y="${yy + 4}" fill="#9fb0c7" font-size="12">${Math.round(tick)}</text>`;
+      }
+      const paths = series.map(item => {
+        const d = item.values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+        return `<path d="${d}" fill="none" stroke="${item.color}" stroke-width="2.5"/>`;
+      }).join("");
+      svg.innerHTML = marks + paths;
+    }
+    chart("humidity", [{values: to, color: "#00ff88"}, {values: from, color: "#7fd7ff"}], 20, 60);
+    chart("chamber", [{values: chamber, color: "#ff4444"}], 60, 240);
+  </script>
+</body>
+</html>

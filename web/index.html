@@ -5,56 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AeroSentry</title>
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0a1628;
-      --card: #12233d;
-      --text: #ffffff;
-      --muted: #9fb0c7;
-      --accent: #00ff88;
-      --warn: #ff4444;
-      --line: #243956;
-    }
+    :root { color-scheme: dark; --bg: #0a1628; --card: #12233d; --text: #fff; --muted: #9fb0c7; --accent: #00ff88; --warn: #ff4444; --line: #243956; }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font: 16px/1.45 "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-    main {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 24px 16px 48px;
-    }
-    h1 { margin: 0 0 4px; font-size: 28px; }
-    h2 { margin: 28px 0 8px; font-size: 18px; }
-    p, li { color: var(--muted); }
-    .banner, .card {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 16px;
-    }
-    .banner { color: var(--accent); }
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    button, .stop {
-      min-height: 52px;
-      border: 0;
-      border-radius: 10px;
-      font: inherit;
-      color: var(--bg);
-      background: var(--accent);
-    }
+    body { margin: 0; font: 16px/1.45 "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    main { max-width: 480px; margin: 0 auto; padding: 20px 16px 48px; }
+    h1 { margin: 0; font-size: 28px; }
+    nav { display: flex; gap: 16px; margin: 8px 0 16px; }
+    a { color: var(--accent); }
+    .banner, .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+    .banner { color: var(--muted); }
+    .ok { color: var(--accent); }
+    .bad { color: var(--warn); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    button { min-height: 52px; border: 0; border-radius: 10px; font: inherit; color: #0a1628; background: var(--accent); }
     .stop { background: var(--warn); color: white; grid-column: 1 / -1; }
-    button:disabled, .stop:disabled { opacity: 0.45; }
+    button:disabled { opacity: 0.4; }
     label { display: block; margin-top: 12px; color: var(--muted); }
     select { width: 100%; min-height: 40px; margin-top: 4px; }
-    dl { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; margin: 0; }
+    dl { display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; margin: 0; }
     dt { color: var(--muted); }
     dd { margin: 0; }
   </style>
@@ -62,62 +30,95 @@
 <body>
   <main>
     <h1>AeroSentry</h1>
-    <p>Remote controls. Charts stay off this page.</p>
-    <p class="banner">Not connected. This page cannot start or stop the unit yet.</p>
-
+    <nav><a href="index.html">Controls</a><a href="history.html">History</a></nav>
+    <p id="banner" class="banner">Looking for the local bridge.</p>
     <h2>Status</h2>
     <div class="card">
       <dl>
-        <dt>Mode</dt><dd>Waiting for mesh</dd>
-        <dt>To-Engine</dt><dd>—</dd>
-        <dt>From-Engine</dt><dd>—</dd>
-        <dt>Chamber</dt><dd>—</dd>
-        <dt>Outputs</dt><dd>Pump off, heater off, fan off</dd>
-        <dt>Last reply</dt><dd>No command has been sent</dd>
+        <dt>Mode</dt><dd id="mode">—</dd>
+        <dt>To-Engine</dt><dd id="to">—</dd>
+        <dt>From-Engine</dt><dd id="from">—</dd>
+        <dt>Chamber</dt><dd id="chamber">—</dd>
+        <dt>Chip</dt><dd id="chip">—</dd>
+        <dt>Outputs</dt><dd id="outputs">—</dd>
+        <dt>Last reply</dt><dd id="reply">—</dd>
       </dl>
     </div>
-
-    <h2>Cycle</h2>
     <div class="grid">
-      <button type="button" disabled>Purge</button>
-      <button type="button" disabled>Manual dryer</button>
-      <button type="button" disabled>Auto dryer</button>
-      <button type="button" disabled>Recharge</button>
-      <button type="button" class="stop" disabled>Stop</button>
+      <button type="button" data-command="purge" disabled>Purge</button>
+      <button type="button" data-command="manual" disabled>Manual dryer</button>
+      <button type="button" data-command="auto" disabled>Auto dryer</button>
+      <button type="button" data-command="recharge" disabled>Recharge</button>
+      <button type="button" class="stop" data-command="stop" disabled>Stop</button>
     </div>
     <label>Manual dryer on time
-      <select disabled>
-        <option>1 minute</option>
-        <option>2 minutes</option>
-        <option selected>3 minutes</option>
-        <option>4 minutes</option>
-        <option>5 minutes</option>
-      </select>
+      <select id="onMin"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
     </label>
-    <label>Manual dryer rest
-      <select disabled>
-        <option selected>1 hour</option>
-        <option>2 hours</option>
-        <option>3 hours</option>
-      </select>
+    <label>Manual dryer rest, hours
+      <select id="offHr"><option selected>1</option><option>2</option><option>3</option></select>
     </label>
-    <label>Auto target, From-Engine
-      <select disabled>
-        <option>15%</option>
-        <option selected>20%</option>
-        <option>25%</option>
-        <option>30%</option>
-      </select>
+    <label>Auto target, From-Engine %
+      <select id="target"><option>15</option><option selected>20</option><option>25</option><option>30</option></select>
     </label>
-
-    <h2>How a command will travel</h2>
-    <ol>
-      <li>This page sends a command through MeshCore.</li>
-      <li>LoRa carries it to the Heltec at the unit.</li>
-      <li>The Heltec forwards it on ESP-NOW channel 1.</li>
-      <li>The Waveshare accepts or refuses it. The Heltec does not drive the relays.</li>
-    </ol>
-    <p>A start is ignored if the radio link is quiet, a required sensor is missing, or a thermal limit is already tripped. Stop is repeated until the controller answers. The touch screen can always stop the cycle.</p>
   </main>
+  <script>
+    const banner = document.getElementById("banner");
+    const buttons = document.querySelectorAll("button");
+    function showValue(id, valid, value, suffix) {
+      const el = document.getElementById(id);
+      el.textContent = valid && value != null ? value + suffix : "offline";
+    }
+    function render(s) {
+      document.getElementById("mode").textContent = s.mode || "—";
+      showValue("to", s.toValid, s.toRh, "%");
+      showValue("from", s.fromValid, s.fromRh, "%");
+      showValue("chamber", s.chamberValid, s.chamberF, " F");
+      document.getElementById("chip").textContent = s.chipC == null ? "—" : s.chipC + " C";
+      const relay = s.relays ? "relay board ready" : "relay board not connected";
+      document.getElementById("outputs").textContent =
+        "Pump " + (s.pump ? "on" : "off") + ", heater " + (s.heat ? "on" : "off") +
+        ", fan " + (s.fan ? "on" : "off") + ". " + relay;
+      const reply = document.getElementById("reply");
+      reply.textContent = s.lastReply || "—";
+      reply.className = s.accepted === true ? "ok" : s.accepted === false ? "bad" : "";
+      buttons.forEach(button => button.disabled = !s.connected);
+      if (!s.connected) {
+        banner.textContent = "Bridge is open, but the Heltec radio is not reporting yet.";
+      } else if (!s.relays) {
+        banner.textContent = "Live link. Humidity stays offline until the XIAO is in range. Starts are refused while the relay board is at home.";
+      } else {
+        banner.textContent = "Live link to the controller.";
+      }
+    }
+    async function refresh() {
+      try {
+        const response = await fetch("/api/status");
+        if (!response.ok) throw new Error("status");
+        render(await response.json());
+      } catch (error) {
+        banner.textContent = "Open http://127.0.0.1:8080 from the local bridge. The file itself cannot reach the radios.";
+        buttons.forEach(button => button.disabled = true);
+      }
+    }
+    buttons.forEach(button => button.addEventListener("click", async () => {
+      buttons.forEach(item => item.disabled = true);
+      const response = await fetch("/api/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: button.dataset.command,
+          dryerOnMinutes: Number(document.getElementById("onMin").value),
+          dryerOffHours: Number(document.getElementById("offHr").value),
+          dryerTargetRH: Number(document.getElementById("target").value)
+        })
+      });
+      const ack = await response.json();
+      document.getElementById("reply").textContent = ack.text || "No reply.";
+      document.getElementById("reply").className = ack.accepted ? "ok" : "bad";
+      refresh();
+    }));
+    refresh();
+    setInterval(refresh, 1000);
+  </script>
 </body>
 </html>

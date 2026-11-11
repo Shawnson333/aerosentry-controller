@@ -14,6 +14,7 @@
 #include "system_clock.h"
 #include "ui.h"
 #include "lvgl_v8_port.h"
+#include "radio_link.h"
 
 static bool lvglReady = false;
 
@@ -78,6 +79,7 @@ void setup() {
 
 void loop() {
     sensorsUpdate();
+    radioLinkUpdate();
     stateMachine.update();
 
     if (lvglReady) {
