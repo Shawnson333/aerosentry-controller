@@ -44,36 +44,38 @@ GPS is unplugged. Leave the GNSS pins unused: RX 38, TX 39, EN 34, RESET 42. A m
 
 ## Home wiring — Heltec V4.3 to Waveshare
 
-Do this only with a **3.3V** RS485 module (SP3485 or MAX3485). A common blue 5V MAX485 board puts 5V on its RO pin and can damage the Heltec. If the module at home is 5V, do not wire it.
+The Heltec has no RS485 socket. A small 3.3V RS485 adapter sits next to it. Heltec pins go only to that adapter. The adapter's A and B wires are the only signal wires that go on to the Waveshare.
 
-The Heltec GPIOs do not wire to Waveshare GPIOs. Each board has its own transceiver. The only wires between the two boards are A, B, and GND.
+Do this only with a 3.3V adapter (SP3485 or MAX3485). A common blue 5V MAX485 board puts 5V back into the Heltec and can damage it. If the adapter at home is 5V, do not wire it.
 
-Heltec header, silkscreen numbers, to the RS485 module:
+Five wires on the Heltec side, using the numbers printed on the Heltec header:
 
-| Heltec pin | Module pin | Direction |
-| --- | --- | --- |
-| GPIO 26 | DI, also marked TX or TXD | Heltec transmits into the module |
-| GPIO 33 | RO, also marked RX or RXD | Module receives into the Heltec |
-| GPIO 47 | DE and RE tied together | Heltec drives this high only while sending |
-| 3V3 | VCC | 3.3V module only |
-| GND | GND | Common ground |
-
-Do not use Heltec GPIO 2, 5, or 7. Those are the V4.3 power amplifier. Do not use GPIO 8-14 (LoRa), 17/18/21 (OLED), 19/20 (USB), 35 (LED), 36 (Vext), 0 (boot button), or the GNSS pins.
-
-Module bus side to the Waveshare RS485 socket:
-
-| Module | Waveshare socket |
+| Heltec pin | Adapter pin to look for |
 | --- | --- |
-| A | A (`RS485_TX+`) |
-| B | B (`RS485_TX-`) |
+| 26 | TXD. Some boards print this as TX or DI. |
+| 33 | RXD. Some boards print this as RX or RO. |
+| 47 | DE and RE. Twist those two adapter pins together and land the one wire on 47. If the adapter has one pin already marked DE/RE, use that and skip the twist. |
+| 3V3 | VCC |
 | GND | GND |
 
-Leave the Waveshare USB-C as the programming port. Leave the Heltec USB-C as its programming port. First power-up is an echo test only. It must not be able to start the pump or heater.
+That is the whole Heltec hookup. Do not also run 26 or 33 over to the Waveshare. Do not use Heltec pins 2, 5, or 7. Those run the V4.3 power amplifier.
+
+Three wires leave the adapter for the Waveshare RS485 socket:
+
+| Adapter | Waveshare socket |
+| --- | --- |
+| A | A |
+| B | B |
+| GND | GND |
+
+Do not put jumpers on Waveshare GPIO 43 or 44. Those already go to the onboard RS485 chip. Leave both USB-C ports for programming. Do not power the adapter from the relay coil 5V, and do not connect a 5V pin to a 3.3V pin.
+
+If the adapter has no DE or RE pin at all, it is the auto-direction kind. Then skip pin 47 and wire only 26, 33, 3V3, and GND. First power-up is an echo test only. It must not be able to start the pump or heater.
 
 Still open before that echo test is turned into commands:
 
 - Packet contents and how often status and logs go out.
-- Confirm the module in hand is 3.3V before any wire is attached.
+- Confirm the adapter in hand is 3.3V before any wire is attached.
 
 Leave these alone:
 
