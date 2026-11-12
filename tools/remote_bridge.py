@@ -14,7 +14,6 @@ import serial
 from serial.tools import list_ports
 
 ROOT = Path(__file__).resolve().parents[1] / "web"
-HOST = "127.0.0.1"
 PORT = 8080
 
 status = {
@@ -43,9 +42,12 @@ next_seq = 1
 
 
 def parse_number(text):
-    if text == "-" or text == "":
+    if text is None or text == "-" or text == "":
         return None
-    return float(text)
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def apply_status(fields):
@@ -110,7 +112,10 @@ def reader():
             continue
         if not raw:
             continue
-        parse_line(raw.decode("utf-8", errors="replace").strip())
+        try:
+            parse_line(raw.decode("utf-8", errors="replace").strip())
+        except (ValueError, KeyError):
+            continue
 
 
 def find_heltec():
@@ -212,6 +217,31 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(result)
 
 
+def tailscale_ip():
+    exe = Path(r"C:\Program Files\Tailscale\tailscale.exe")
+    if not exe.is_file():
+        return None
+    import subprocess
+    try:
+        result = subprocess.run([str(exe), "ip", "-4"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    address = result.stdout.strip().splitlines()
+    if result.returncode != 0 or not address or not address[0].startswith("100."):
+        return None
+    return address[0]
+
+
+def serve(host):
+    try:
+        server = ThreadingHTTPServer((host, PORT), Handler)
+    except OSError as error:
+        print(f"Could not listen on {host}:{PORT}: {error}")
+        return
+    print(f"Open http://{host}:{PORT}/")
+    server.serve_forever()
+
+
 def main():
     global link
     print("Looking for the Heltec beacon...")
@@ -219,10 +249,14 @@ def main():
     if link is None:
         print("Heltec not found. The page will still open, but commands cannot be sent.")
     threading.Thread(target=reader, daemon=True).start()
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"Open http://{HOST}:{PORT}/")
-    print("This is local only. It is not on the internet.")
-    server.serve_forever()
+    private = tailscale_ip()
+    if private:
+        threading.Thread(target=serve, args=("127.0.0.1",), daemon=True).start()
+        print("Phone URL uses the Tailscale address only. Do not forward this port on the router.")
+        serve(private)
+    else:
+        print("Tailscale is not logged in. Listening on this computer only.")
+        serve("127.0.0.1")
 
 
 if __name__ == "__main__":

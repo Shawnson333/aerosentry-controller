@@ -44,7 +44,7 @@ The remote path is web page, then MeshCore over LoRa, then the Heltec, then ESP-
 
 The basic operator page is `web/index.html`, and the sample history drawing is `web/history.html`. Do not open those files directly. Run `tools/remote_bridge.py` and open `http://127.0.0.1:8080/`. That server is this computer standing in for the future home computer. It talks USB to the Heltec, and the Heltec talks ESP-NOW to the Waveshare. It is bound to this machine only. It is not on the internet.
 
-A phone away from home will later open that same page on the home computer, through a private link such as Tailscale, not through an open public port. The home computer will have its own V4 on USB. LoRa repeaters carry the mesh between that home V4 and the hangar V4. MeshCore firmware is not on either radio yet, so this bench uses the USB cable in place of that mesh hop.
+A phone away from home opens that same page through Tailscale, not through an open public port. This computer's Tailscale address is `100.110.107.102`. The phone URL is `http://100.110.107.102:8080/`. Do not forward port 8080 on the router. The home computer will have its own V4 on USB. LoRa repeaters carry the mesh between that home V4 and the hangar V4. MeshCore firmware is not on either radio yet, so this bench uses the USB cable in place of that mesh hop.
 
 On 2026-11-11 the page sent Stop and the controller answered "Already idle. Outputs off." Purge was refused because the relay board is not connected. Starts stay refused until that board is back. Humidity can still appear if the XIAO is in radio range.
 
