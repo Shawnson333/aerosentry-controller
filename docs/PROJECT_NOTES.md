@@ -1,8 +1,24 @@
 # AeroSentry Project Notes
 
-## Where we are — 2026-11-11
+## Where we are — 2026-11-11, end of session
 
-Local controller work is saved on `main` at `c5023bb` ("Add DS3231M RTC and robust chamber thermistor reading with retry"). That commit was already local. Before this note, `main` was 6 commits ahead of `origin/main` and had not been pushed. The working tree was clean.
+Saved locally on `main` at `86a51b5` ("Serve the remote page on the Tailscale address."). Not pushed. `main` is ahead of `origin/main`. Working tree was clean before this note.
+
+Phone path that works today, with the relay board still at home:
+
+- Phone browser, Tailscale connected, opens `http://100.110.107.102:8080/`. History sample is `/history.html`. Do not open the HTML files directly.
+- This computer runs `tools/remote_bridge.py`. It must stay awake. It talks USB to the Heltec, which forwards on ESP-NOW channel 1 to the Waveshare.
+- Stop was acknowledged: "Already idle. Outputs off." Purge was refused: relay board not connected. Starts stay refused until the XL9535 is back.
+- Live humidity can appear when the XIAO is in range. Charts on the history page are sample drawings, not hangar logs.
+- Tailscale address can change. If the phone URL fails, run `tailscale ip -4` on this computer. Do not forward port 8080.
+
+Next session, in this order. Do not redo the radio discovery.
+
+1. Reconnect the XL9535 and DS3231M at home, then confirm starts are no longer refused for a missing relay board.
+2. MeshCore on the hangar Heltec and a second V4 at home. That replaces the USB cable. Do not flash stock MeshCore ESP-NOW bridge. Do not join the Heltec to Wi-Fi. Stay on channel 1.
+3. Move `tools/remote_bridge.py` to a small always-on computer later. A Chromebox is fine. The phone still uses Tailscale, not a public port.
+
+To resume without rereading the whole chat: read this section only, then do the next numbered step. Do not rebuild, reflash, or rescan ports unless that step needs it.
 
 Bench-confirmed and in the saved firmware:
 
@@ -21,7 +37,7 @@ Still deferred, on purpose:
 - SD card logging. `src/logging.cpp` is a stub. The intended file is `/hangar.csv`.
 - History web page. About 30 days, both humidities about once a minute. Charts stay off the operator screen.
 - Unattended recharge valves. Do not assign K6-K8 until that sequence exists.
-- Heltec WiFi LoRa 32 V4.3 OLED board is in hand. GPS is unplugged. No wires to the Waveshare. On 2026-11-11 the Heltec beacon was heard by the controller on ESP-NOW channel 1, sequence 46 through 61 with no gaps. Heltec MAC `10:BD:A3:5A:7C:94` on COM6. Waveshare MAC `94:A9:90:DF:BB:54` on COM4. The beacon cannot start a cycle. No Heltec command firmware yet.
+- Heltec WiFi LoRa 32 V4.3, GPS unplugged, no wires to the Waveshare. MAC `10:BD:A3:5A:7C:94`. Waveshare MAC `94:A9:90:DF:BB:54`. Firmware in `nodes/heltec-radio` forwards page commands and returns status. It cannot drive relays.
 
 Do not reopen these while adding the radio: the XL9535 is not a PCF8574, K1 does not drive, the XIAO stays on ESP-NOW channel 1, and a remote command must not become a second state machine.
 
@@ -56,7 +72,7 @@ GPS is unplugged. Leave the GNSS pins unused: RX 38, TX 39, EN 34, RESET 42. A m
 
 Nothing on the Heltec header connects to the Waveshare. The hear test is in `nodes/heltec-radio`. It broadcasts `LinkBeacon` once a second. The controller prints it and does not treat it as a sensor reading or a command.
 
-Ports seen on this computer: Waveshare COM4, Heltec COM6. Both are native USB, so those numbers can swap after a replug. Confirm by the boot line, not by the port number. The controller says `AeroSentry Controller Starting`. The Heltec beacon says `AeroSentry Heltec V4.3 beacon`.
+Ports last seen: Waveshare COM4, Heltec COM6. Both are native USB, so those numbers can swap. Confirm by the boot line. The controller says `AeroSentry Controller Starting`. The Heltec says `AeroSentry Heltec V4.3 link`.
 
 On that same USB-only session the XL9535 and DS3231M did not ACK. That was already true before the beacon firmware was flashed. The display, touch, and ESP-NOW listener still started, and no relay writes were made.
 

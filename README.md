@@ -23,7 +23,7 @@ From this directory (Windows):
 ## Implementation status
 
 - Direct ESP-IDF RGB driver and LVGL 8.3.11 work on the Type B display.
-- Checkpoint 2026-11-11: touch control, the XIAO link, relays K2-K4, the cycle rules, and the DS3231M driver are in `main`. The Heltec V4.3 beacon in `nodes/heltec-radio` was heard on ESP-NOW channel 1. Controller COM4, MAC `94:A9:90:DF:BB:54`. Heltec COM6, MAC `10:BD:A3:5A:7C:94`. Those port numbers can swap. The beacon cannot start a cycle. See `docs/PROJECT_NOTES.md`.
+- Checkpoint 2026-11-11: phone page works through Tailscale at `http://100.110.107.102:8080/` while `tools/remote_bridge.py` is running. Heltec forwards commands on ESP-NOW channel 1. Starts stay refused until the relay board is reconnected. See `docs/PROJECT_NOTES.md`.
 - Main, warning, Manual Dryer Setup, Auto Cycle, and editable clock screens are implemented.
 - Mode start commands require the sensor that mode actually uses. A missing required sensor blocks Start with a sensor-unavailable warning.
 - Purge and manual dryer watch To-Engine for the 40% hard-stop. Auto watches both humidity sensors. Recharge holds 240F on the chamber thermistor, then ends on three consecutive To-Engine readings at or below 15%, or at 3 hours. Chamber temperature above 260F, or either humidity-sensor temperature above 250F, stops all outputs. Dryer start warns if no purge has run in the last hour.
