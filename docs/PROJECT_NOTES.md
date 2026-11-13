@@ -18,7 +18,45 @@ Next session, in this order. Do not redo the radio discovery.
 2. MeshCore on the hangar Heltec and a second V4 at home. That replaces the USB cable. Do not flash stock MeshCore ESP-NOW bridge. Do not join the Heltec to Wi-Fi. Stay on channel 1.
 3. Move `tools/remote_bridge.py` to a small always-on computer later. A Chromebox is fine. The phone still uses Tailscale, not a public port.
 
-To resume without rereading the whole chat: read this section only, then do the next numbered step. Do not rebuild, reflash, or rescan ports unless that step needs it.
+To resume without rereading the whole chat: read this section and the wiring list below. Do not rebuild or reflash until the new sensors are on the bench.
+
+## Proposed sensor move — not coded yet
+
+The no-display Heltec WiFi LoRa 32 V4.3 in the enclosure will replace the XIAO. It will read both humidity probes and the chamber thermistor, then send the existing sensor packet on ESP-NOW channel 1. The OLED V4 boards stay the repeater and the home node. The Waveshare still owns the relays. Do not start this firmware until the wiring below is powered on the bench.
+
+The new probes are stainless SHT40 units that thread into the end caps. They cannot have their address changed, so they stay on two buses. Runs are about 12 inches, inside the same enclosure. The thermistor part does not change. Its noise limit must be retuned on this board. The old 150 mV XIAO number does not carry over.
+
+## Wiring — no-display Heltec V4.3
+
+Power every sensor from a header 3V3 pin and a header GND. Do not use 5V. Do not use the Ve pins. Do not add pull-up resistors.
+
+To-Engine SHT40, top connector:
+
+| Heltec pin | Probe wire |
+| --- | --- |
+| GPIO 17 | SDA |
+| GPIO 18 | SCL |
+| 3V3 | VCC |
+| GND | GND |
+
+From-Engine SHT40, header J2:
+
+| Heltec pin | Probe wire |
+| --- | --- |
+| GPIO 33 | SDA |
+| GPIO 26 | SCL |
+| 3V3 | VCC |
+| GND | GND |
+
+Chamber thermistor, header J3:
+
+| Heltec pin | Connection |
+| --- | --- |
+| 3V3 | One thermistor lead |
+| GPIO 4 | Other thermistor lead, and one side of the 10k resistor |
+| GND | Other side of the 10k resistor |
+
+Do not use GPIO 2, 5, or 7. Those are the power amplifier. Do not use GPIO 8 through 14. Those are LoRa. Do not use GPIO 19 or 20. Those are USB. Do not use GPIO 36. That pin switches peripheral power. Do not use GPIO 1. That pin reads the battery.
 
 Bench-confirmed and in the saved firmware:
 
