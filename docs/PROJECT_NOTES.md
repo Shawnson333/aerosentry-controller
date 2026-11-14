@@ -14,8 +14,8 @@ Phone path that works today, with the relay board still at home:
 
 Next session, in this order. Do not redo the radio discovery.
 
-1. Reconnect the XL9535 and DS3231M at home, then confirm starts are no longer refused for a missing relay board.
-2. MeshCore on the hangar Heltec and a second V4 at home. That replaces the USB cable. Do not flash stock MeshCore ESP-NOW bridge. Do not join the Heltec to Wi-Fi. Stay on channel 1.
+1. Done 2026-11-13. The XL9535 and DS3231M are connected. A purge start was accepted, then Stop was accepted. The pump may have run for a moment. The missing-relay refusal is gone.
+2. Next: the second V4 is already flashed with MeshCore companion. Test that radio hop before replacing the USB stand-in. Do not flash the stock MeshCore ESP-NOW bridge. Do not join the Heltec to Wi-Fi. Stay on channel 1.
 3. Move `tools/remote_bridge.py` to a small always-on computer later. A Chromebox is fine. The phone still uses Tailscale, not a public port.
 
 To resume without rereading the whole chat: read this section and the wiring list below. Do not rebuild or reflash until the new sensors are on the bench.
