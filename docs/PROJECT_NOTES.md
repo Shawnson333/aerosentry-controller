@@ -20,11 +20,13 @@ Next session, in this order. Do not redo the radio discovery.
 
 To resume without rereading the whole chat: read this section and the wiring list below. Do not rebuild or reflash until the new sensors are on the bench.
 
-## Proposed sensor move — not coded yet
+## Sensor move — bench confirmed
 
-The no-display Heltec WiFi LoRa 32 V4.3 in the enclosure will replace the XIAO. It will read both humidity probes and the chamber thermistor, then send the existing sensor packet on ESP-NOW channel 1. The OLED V4 boards stay the repeater and the home node. The Waveshare still owns the relays. Do not start this firmware until the wiring below is powered on the bench.
+The no-display Heltec WiFi LoRa 32 V4.3 has replaced the XIAO on the bench. Firmware is `nodes/heltec-sensor`. It reads both SHT40 probes and the chamber thermistor, then sends the existing sensor packet on ESP-NOW channel 1. The Waveshare received the packets with all three validity flags set. The XIAO was disconnected. The OLED V4 boards stay the repeater and home node. The Waveshare still owns the relays.
 
-The new probes are stainless SHT40 units that thread into the end caps. They cannot have their address changed, so they stay on two buses. Runs are about 12 inches, inside the same enclosure. The thermistor part does not change. Its noise limit must be retuned on this board. The old 150 mV XIAO number does not carry over.
+New node MAC: `F8:5B:1B:BF:3F:EC`. Both SHT40 probes answer at `0x44` on their separate buses. Bench readings were about 47% / 45% RH and 21C chamber. Thermistor spread was about 3-16 mV. The 150 mV gate is a starting value, not a final heater-mat proof.
+
+The stainless SHT40 probes use high-precision command `0xFD`. Their addresses cannot be changed, so the two buses stay separate. Runs are about 12 inches inside the same enclosure.
 
 ## Wiring — no-display Heltec V4.3
 
