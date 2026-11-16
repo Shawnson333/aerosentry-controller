@@ -16,6 +16,7 @@ static uint32_t sequenceNumber = 0;
 static bool radioReady = false;
 static int chamberMillivolts = -1;
 static int chamberSpread = -1;
+static int valveMillivolts = -1;
 static uint8_t chamberStable = 0;
 static uint8_t chamberFaults = 0;
 
@@ -97,6 +98,30 @@ static bool readChamber(float &tempC) {
     return tempC >= -20.0f && tempC <= 150.0f;
 }
 
+/* Trimmed-mean read of the valve shunt. No spread gate here: a switching
+   transient is real for an instant, and the Waveshare decides what the
+   reading means based on whether the valve is commanded energized. */
+static void readValveCurrent() {
+    const int sampleCount = 8;
+    int samples[sampleCount];
+    for (int i = 0; i < sampleCount; ++i) {
+        samples[i] = analogReadMilliVolts(VALVE_SHUNT_ADC_PIN);
+        delay(2);
+    }
+    for (int i = 1; i < sampleCount; ++i) {
+        const int value = samples[i];
+        int j = i;
+        while (j > 0 && samples[j - 1] > value) {
+            samples[j] = samples[j - 1];
+            --j;
+        }
+        samples[j] = value;
+    }
+    long total = 0;
+    for (int i = 1; i < sampleCount - 1; ++i) total += samples[i];
+    valveMillivolts = (int)(total / (sampleCount - 2));
+}
+
 
 static bool radioBegin() {
     WiFi.mode(WIFI_STA);
@@ -125,15 +150,18 @@ void setup() {
     pinMode(THERMISTOR_ADC_PIN, INPUT);
     analogReadResolution(12);
     analogSetPinAttenuation(THERMISTOR_ADC_PIN, ADC_11db);
+    pinMode(VALVE_SHUNT_ADC_PIN, INPUT);
+    analogSetPinAttenuation(VALVE_SHUNT_ADC_PIN, ADC_11db);
 
     radioReady = radioBegin();
     Serial.printf("Channel %d  MAC %s  %s\n",
                   AEROSENTRY_ESPNOW_CHANNEL, WiFi.macAddress().c_str(),
                   radioReady ? "ready" : "FAILED");
-    Serial.println(F("To-Engine 17/18, From-Engine 15/16, thermistor GPIO 4"));
+    Serial.println(F("To-Engine 17/18, From-Engine 15/16, thermistor GPIO 4, valve shunt GPIO 3"));
 }
 
 void loop() {
+    readValveCurrent();
     SensorPacket packet = {};
     packet.version = AEROSENTRY_PACKET_VERSION;
     packet.sequence = sequenceNumber++;
@@ -163,17 +191,19 @@ void loop() {
         packet.flags |= SENSOR_FLAG_CHAMBER_VALID;
         packet.chamberTempCenti = toCenti(tempC);
     }
+    packet.valveAdcMillivolts = (uint16_t)(valveMillivolts > 0 ? valveMillivolts : 0);
 
     bool sent = false;
     if (radioReady) {
         const uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
         sent = esp_now_send(broadcast, (uint8_t *)&packet, sizeof(packet)) == ESP_OK;
     }
-    Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d stable %u faults %u sent %d\n",
+    Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d valveMv %d stable %u faults %u sent %d\n",
                   (unsigned long)millis(), (unsigned long)packet.sequence, packet.flags,
                   (packet.flags & SENSOR_FLAG_TO_VALID) ? toHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_FROM_VALID) ? fromHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_CHAMBER_VALID) ? tempC : -1.0f,
-                  chamberMillivolts, chamberSpread, chamberStable, chamberFaults, sent ? 1 : 0);
+                  chamberMillivolts, chamberSpread, valveMillivolts,
+                  chamberStable, chamberFaults, sent ? 1 : 0);
     delay(SEND_INTERVAL_MS);
 }

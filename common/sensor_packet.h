@@ -2,11 +2,12 @@
 
 #include <stdint.h>
 
-/* Shared ESP-NOW payload. Both the XIAO sender and the Waveshare receiver
-   must use this exact layout. Packed, little-endian.
-   Humidity is centi-percent (4012 = 40.12%). Temperature is centi-celsius. */
+/* Shared ESP-NOW payload. The sensor node (Heltec V4.3) is the sender and the
+   Waveshare is the receiver; both must use this exact layout. Packed,
+   little-endian. Humidity is centi-percent (4012 = 40.12%). Temperature is
+   centi-celsius. Version 2 adds the valve shunt reading. */
 
-#define AEROSENTRY_PACKET_VERSION 1
+#define AEROSENTRY_PACKET_VERSION 2
 #define AEROSENTRY_ESPNOW_CHANNEL 1
 
 #define SENSOR_FLAG_TO_VALID      0x01
@@ -21,5 +22,6 @@ struct __attribute__((packed)) SensorPacket {
     int16_t fromEngineRhCenti;
     int16_t fromEngineTempCenti;
     int16_t chamberTempCenti;
+    uint16_t valveAdcMillivolts;  // 1-ohm shunt in the valve 12 V return
     uint32_t sequence;
 };

@@ -20,6 +20,13 @@
 #define NTC_VCC             3.3f
 #define NTC_MAX_SPREAD_MV   150
 
+/* Valve coil current sense. A 1-ohm shunt sits in the valve 12 V return:
+   valve(-) -- GPIO 3 tap -- 1 ohm -- 12 V(-). The 4 W coil draws about
+   0.33 A, so GPIO 3 reads about 330 mV while the valve is energized and
+   near 0 mV when it is off. The 12 V supply negative must be common with
+   this board's ground. A flyback diode belongs across the valve coil. */
+#define VALVE_SHUNT_ADC_PIN 3
+
 #define SEND_INTERVAL_MS    1000UL
 
 #endif

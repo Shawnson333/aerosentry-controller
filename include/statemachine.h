@@ -38,6 +38,7 @@ enum class StopReason {
     RECHARGE_MAX_TIME,
     THERMAL,
     VALVE_SUSPECT,
+    VALVE_NO_CURRENT,
     SAFETY_FAILED
 };
 
@@ -116,7 +117,13 @@ private:
     SystemMode _rechargeResumeMode; // Cycle to resume after a successful auto recharge
     bool _rechargeFailure;          // true while running the failure cool down
     StopReason _rechargeFailureReason;
-    bool _chamberReachedTarget;     // Arms the valve leak check after real heat-up
+    bool _chamberReachedTarget;     // Arms the valve verification after real heat-up
+    float _valveBaselineRH;         // From-Engine baseline, set after the flush pulse
+    uint8_t _valvePulseCount;       // End-of-pulse samples judged since recharge started
+    uint8_t _valveHighCount;        // Consecutive From-Engine samples above baseline
+    uint8_t _valveNoCurrentCount;   // Consecutive low shunt readings while energized
+    uint32_t _valveCommandMs;       // millis() when the valve was energized
+    uint32_t _valveCheckMs;         // Last coil-current check
     uint8_t _autoQuickCycles;       // Count of 10-min quick cycles attempted
     uint8_t _safetyCheckCount;      // Safety check pulses completed (0, 1, 2)
     uint32_t _rechargeStartEpoch;   // Epoch when recharge started, for logging
@@ -149,6 +156,8 @@ private:
     void setRechargePhase(RechargePhase phase);
     void setValve(bool on);
     void rechargeFailureCooldown(StopReason reason);
+    bool evaluateValveVerification();
+    void checkValveCurrent();
     uint32_t phaseElapsed() const;
     uint32_t phaseRemaining(uint32_t totalMs) const;
 };

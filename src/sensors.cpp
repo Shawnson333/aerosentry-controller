@@ -148,6 +148,7 @@ bool sensorsUpdate() {
     sensors.toValid = (packet.flags & SENSOR_FLAG_TO_VALID) != 0;
     sensors.fromValid = (packet.flags & SENSOR_FLAG_FROM_VALID) != 0;
     sensors.chamberValid = (packet.flags & SENSOR_FLAG_CHAMBER_VALID) != 0;
+    sensors.valveAdcMillivolts = packet.valveAdcMillivolts;
     if (sensors.toValid) {
         sensors.toEngineRH = fromCenti(packet.toEngineRhCenti);
         sensors.toEngineTemp = fromCenti(packet.toEngineTempCenti);
@@ -176,6 +177,7 @@ bool sensorsUpdate() {
     if (sensors.chamberTimestamp != 0) {
         Serial.printf(" age %lu ms", (unsigned long)(logTime - sensors.chamberTimestamp));
     }
+    Serial.printf(" valve %d mV", sensors.valveAdcMillivolts);
     Serial.println();
     return true;
 }

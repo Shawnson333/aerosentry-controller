@@ -14,7 +14,8 @@ struct SensorReading {
     float toEngineTemp;      // Celsius
     float fromEngineRH;
     float fromEngineTemp;    // Celsius
-    float chamberTemp;       // Celsius, thermistor on the XIAO
+    float chamberTemp;       // Celsius, thermistor on the sensor node
+    int valveAdcMillivolts;  // 1-ohm shunt in the valve 12 V return, from the sensor node
     uint32_t timestamp;        // millis() when the last packet arrived
     uint32_t chamberTimestamp; // millis() when the last valid chamber sample arrived
     bool toValid;

@@ -6,8 +6,8 @@ Hangar-based aircraft-engine dehumidifier controller.
 
 - **Display/controller:** Waveshare ESP32-S3 4.3-inch Capacitive Touch LCD Development Board **Type B with case**, 800x480, ST7262 RGB LCD and GT911 touch.
 - **I2C:** GPIO 8 (SDA), GPIO 9 (SCL). GT911 is detected at 0x5D.
-- **Sensor node:** No-display Heltec WiFi LoRa 32 V4.3 on ESP-NOW channel 1. Firmware is `nodes/heltec-sensor`. To-Engine SHT40 uses GPIO 17/18. From-Engine SHT40 uses GPIO 15/16. Both probes answer at 0x44 on separate buses. The 100K NTC 3950 uses GPIO 4 with the external 10k resistor to ground. The XIAO is no longer needed on the bench.
-- **Relay board:** 8-channel XL9535 at I2C address 0x21, with 3.3V logic and a separate 5V relay supply. Outputs are active-high. K1 is unused. K2 is the pump, K3 the heater, and K4 the case fan. K5 is AUX and stays off. K6-K8 are reserved.
+- **Sensor node:** No-display Heltec WiFi LoRa 32 V4.3 on ESP-NOW channel 1. Firmware is `nodes/heltec-sensor`. To-Engine SHT40 uses GPIO 17/18. From-Engine SHT40 uses GPIO 15/16. Both probes answer at 0x44 on separate buses. The 100K NTC 3950 uses GPIO 4 with the external 10k resistor to ground. GPIO 3 reads a 1-ohm shunt in the recharge valve's 12 V return (coil current sense). Sensor packets are version 2; the Waveshare and sensor node flash together. The XIAO is no longer needed on the bench.
+- **Relay board:** 8-channel XL9535 at I2C address 0x21, with 3.3V logic and a separate 5V relay supply. Outputs are active-high. K1 is unused. K2 is the pump, K3 the heater, and K4 the case fan. K5 is AUX and stays off. K6 is the recharge valve (energized = open loop, vent outside). K7-K8 are reserved.
 - **RTC:** DS3231M at I2C address 0x68, connected to the relay board's second I2C header. It shares GPIO 8/9 and is powered from 3.3V, not the relay coil supply.
 
 ## Build and upload

@@ -72,21 +72,32 @@
 #define RECHARGE_TARGET_TEMP_F  240        // Chamber target, Fahrenheit
 #define RECHARGE_TEMP_HYSTERESIS_F 5       // Heater back on this far below target
 #define RECHARGE_PULSE_ON_MS    10000UL    // Recharge pump on time
+#define RECHARGE_FIRST_PULSE_MS 10000UL    // First pulse also flushes the soaked probes
 #define RECHARGE_PULSE_WAIT_MS  60000UL    // Recharge wait between pulses
 #define RECHARGE_COOLDOWN_MS    3600000UL  // Recharge cool down 1 hour, valves open loop
 #define SAFETY_PULSE_MS         10000UL    // Safety check pump run 10 sec
 #define SAFETY_SAMPLE_INTERVAL_MS 60000UL  // Safety check sample delay 1 min
-#define SAFETY_SAMPLE_INTERVAL_MS 60000UL  // Safety check sample delay 1 min
 #define SAFETY_SAMPLE_COUNT     2          // Safety check runs twice
 
-/* Valve position verification. During open loop (valve energized), From-Engine
-   should read ambient humidity, well below To-Engine. If From-Engine is within
-   this many percent of To-Engine, the valve may not have isolated the engine. */
-#define VALVE_LEAK_THRESHOLD_RH  10.0f   // From-Engine within 10% of To-Engine = suspect
-/* Set to 0 for bench recharge testing. On the bench both probes read the same
-   room air, so a live leak check would always trip once the chamber is hot.
-   In the installed system keep this 1. */
-#define VALVE_LEAK_CHECK_ENABLED 1
+/* Valve verification. Runs only on end-of-pulse samples, and only after the
+   chamber has reached 240F. During pump-off periods the chamber fills with
+   moisture driven off the hot desiccant and BOTH probes climb, so pump-off
+   readings say nothing about valve position. The first pulse is a flush only:
+   the From-Engine probe sits in the intake path and needs a few seconds under
+   flow to burn off the moisture it soaked up while the pump was off.
+   Set VALVE_LEAK_CHECK_ENABLED to 0 for bench testing without a heater. */
+#define VALVE_LEAK_CHECK_ENABLED     1
+#define VALVE_VERIFY_BASELINE_PULSES 2      // Pulses 2-3 set the From-Engine baseline
+#define VALVE_VERIFY_RISE_RH         10.0f  // From-Engine above baseline = exhaust entering engine
+#define VALVE_VERIFY_CONSECUTIVE     2      // Consecutive high samples to alarm
+
+/* Valve coil current sense. The sensor node reads a 1-ohm shunt in the valve
+   12 V return on GPIO 3. The 4 W coil draws about 0.33 A, so the node reports
+   about 330 mV while the valve is energized and near 0 mV when it is off. */
+#define VALVE_CURRENT_MIN_MV       150    // Below this while commanded on = fault
+#define VALVE_CURRENT_GRACE_MS     3000   // Ignore readings just after energizing
+#define VALVE_CURRENT_CHECK_MS     1000   // Cadence of the current check
+#define VALVE_CURRENT_FAULT_COUNT  3      // Consecutive low readings to alarm
 #define LOG_INTERVAL_MS         30000UL    // Log every sensor while a cycle runs
 #define PURGE_RECENT_MS         3600000UL  // Dryer warns if no qualified purge in this window
 #define PURGE_QUALIFY_MS        60000UL    // Pump must run this long before a purge counts

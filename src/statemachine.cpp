@@ -62,6 +62,12 @@ StateMachine::StateMachine()
     , _rechargeFailure(false)
     , _rechargeFailureReason(StopReason::NONE)
     , _chamberReachedTarget(false)
+    , _valveBaselineRH(-1.0f)
+    , _valvePulseCount(0)
+    , _valveHighCount(0)
+    , _valveNoCurrentCount(0)
+    , _valveCommandMs(0)
+    , _valveCheckMs(0)
     , _autoQuickCycles(0)
     , _safetyCheckCount(0)
     , _rechargeStartEpoch(0)
@@ -99,6 +105,12 @@ void StateMachine::begin() {
     _rechargeFailure = false;
     _rechargeFailureReason = StopReason::NONE;
     _chamberReachedTarget = false;
+    _valveBaselineRH = -1.0f;
+    _valvePulseCount = 0;
+    _valveHighCount = 0;
+    _valveNoCurrentCount = 0;
+    _valveCommandMs = 0;
+    _valveCheckMs = 0;
     _autoQuickCycles = 0;
     _safetyCheckCount = 0;
     _rechargeStartEpoch = 0;
@@ -257,6 +269,12 @@ void StateMachine::enterMode(SystemMode newMode) {
             _rechargeFailure = false;
             _rechargeFailureReason = StopReason::NONE;
             _chamberReachedTarget = false;
+            _valveBaselineRH = -1.0f;
+            _valvePulseCount = 0;
+            _valveHighCount = 0;
+            _valveNoCurrentCount = 0;
+            _valveCommandMs = millis();
+            _valveCheckMs = 0;
             Serial.println(F("Recharge started - valve open loop"));
             break;
         default:
@@ -292,6 +310,10 @@ void StateMachine::stopWith(StopReason reason) {
         _chamberReachedTarget = false;
         _rechargeTriggeredByCycle = false;
         _rechargeResumeMode = SystemMode::IDLE;
+        _valveBaselineRH = -1.0f;
+        _valvePulseCount = 0;
+        _valveHighCount = 0;
+        _valveNoCurrentCount = 0;
         Serial.println(F("Recharge ended - valve closed loop"));
     }
     if (reason == StopReason::USER || oldMode == SystemMode::IDLE) {
@@ -317,7 +339,9 @@ void StateMachine::stopWith(StopReason reason) {
     } else if (reason == StopReason::THERMAL) {
         _stopMessage = "Thermal limit reached.\nHeater and pump are off.";
     } else if (reason == StopReason::VALVE_SUSPECT) {
-        _stopMessage = "Valve position suspect.\nFrom-Engine near To-Engine.\nValves closed.";
+        _stopMessage = "Valve position suspect.\nMoisture may be entering engine.\nPump stopped.";
+    } else if (reason == StopReason::VALVE_NO_CURRENT) {
+        _stopMessage = "Valve coil fault.\nNo current while energized.\nPump stopped.";
     } else if (reason == StopReason::SAFETY_FAILED) {
         _stopMessage = "Safety check failed.\nSample above 15%.\nValves closed.";
     } else {
@@ -418,32 +442,9 @@ void StateMachine::updateRecharge() {
         stopWith(StopReason::RECHARGE_MAX_TIME);
         return;
     }
+    checkValveCurrent();
+    if (_mode != SystemMode::RECHARGE) return;  // Coil fault stopped the cycle.
     regulateHeater();
-
-#if VALVE_LEAK_CHECK_ENABLED
-    /* Valve position verification while the pump moves air and the
-       desiccant has actually been heated. On the bench the chamber never
-       reaches target, so this stays disarmed. From-Engine should read
-       ambient, well below To-Engine, while the engine is isolated. */
-    const bool pumpMovingAir = (_rechargePhase == RechargePhase::PULSE_ON ||
-                                _rechargePhase == RechargePhase::COOLDOWN ||
-                                _rechargePhase == RechargePhase::SAFETY_PULSE);
-    if (_valveEnergized && _chamberReachedTarget && pumpMovingAir) {
-        if (toEngineReady() && !fromEngineReady()) {
-            Serial.println(F("Valve check: From-Engine lost while venting"));
-            rechargeFailureCooldown(StopReason::SENSOR_LOST);
-            return;
-        }
-        if (toEngineReady() && fromEngineReady()) {
-            const float diff = sensors.toEngineRH - sensors.fromEngineRH;
-            if (diff < VALVE_LEAK_THRESHOLD_RH) {
-                Serial.println(F("Valve leak suspected - From-Engine near To-Engine"));
-                rechargeFailureCooldown(StopReason::VALVE_SUSPECT);
-                return;
-            }
-        }
-    }
-#endif
 
     switch (_rechargePhase) {
         case RechargePhase::HEATING:
@@ -454,9 +455,19 @@ void StateMachine::updateRecharge() {
                 setRechargePhase(RechargePhase::PULSE_ON);
             }
             break;
-        case RechargePhase::PULSE_ON:
+        case RechargePhase::PULSE_ON: {
             _pumpOn = true;
-            if (phaseElapsed() < RECHARGE_PULSE_ON_MS || !toEngineSampleReady()) break;
+            const uint32_t pulseMs = (_valvePulseCount == 0)
+                                         ? RECHARGE_FIRST_PULSE_MS
+                                         : RECHARGE_PULSE_ON_MS;
+            if (phaseElapsed() < pulseMs || !toEngineSampleReady()) break;
+            /* From-Engine is the valve sentinel. Losing it mid-recharge means
+               we can no longer detect exhaust entering the engine. */
+            if (!fromEngineSampleReady()) {
+                rechargeFailureCooldown(StopReason::SENSOR_LOST);
+                return;
+            }
+            if (!evaluateValveVerification()) return;
             if (sensors.toEngineRH <= RECHARGE_TARGET_RH) {
                 if (_rechargeGoodCycles < 255) _rechargeGoodCycles++;
             } else {
@@ -470,6 +481,7 @@ void StateMachine::updateRecharge() {
             }
             setRechargePhase(RechargePhase::PULSE_WAIT);
             break;
+        }
         case RechargePhase::PULSE_WAIT:
             _pumpOn = false;
             if (phaseElapsed() >= RECHARGE_PULSE_WAIT_MS) {
@@ -620,6 +632,68 @@ void StateMachine::rechargeFailureCooldown(StopReason reason) {
     Serial.print(F("Recharge failure - cool down, valve stays open, reason "));
     Serial.println((int)reason);
     setRechargePhase(RechargePhase::COOLDOWN);
+}
+
+/* Valve position verification, judged only on end-of-pulse From-Engine
+   samples. Pulse 1 is a flush: the probe was soaking in chamber steam while
+   the pump was off and needs a few seconds under flow. Pulses 2-3 set the
+   baseline (lowest reading wins). After that, consecutive samples at or above
+   baseline + threshold mean regen exhaust is entering the engine. */
+bool StateMachine::evaluateValveVerification() {
+#if VALVE_LEAK_CHECK_ENABLED
+    _valvePulseCount++;
+    const float fromRH = sensors.fromEngineRH;
+    if (_valvePulseCount == 1) {
+        Serial.println(F("Valve verify: flush pulse, From-Engine not judged"));
+        return true;
+    }
+    if (_valvePulseCount <= (uint8_t)(1 + VALVE_VERIFY_BASELINE_PULSES)) {
+        if (_valveBaselineRH < 0.0f || fromRH < _valveBaselineRH) {
+            _valveBaselineRH = fromRH;
+        }
+        Serial.printf("Valve verify: baseline %.1f%%\n", _valveBaselineRH);
+        return true;
+    }
+    if (fromRH >= _valveBaselineRH + VALVE_VERIFY_RISE_RH) {
+        if (_valveHighCount < 255) _valveHighCount++;
+    } else {
+        _valveHighCount = 0;
+    }
+    if (_valveHighCount >= VALVE_VERIFY_CONSECUTIVE) {
+        Serial.println(F("Valve verify: From-Engine climbing - exhaust entering engine"));
+        stopWith(StopReason::VALVE_SUSPECT);
+        return false;
+    }
+#endif
+    return true;
+}
+
+/* Coil current supervision. The sensor node reads the 1-ohm shunt and reports
+   millivolts in every packet. While the valve is commanded energized, the
+   reading must stay above threshold; a dead coil, missing 12 V, or an open
+   return wire shows up within a few seconds. Skipped when the sensor node is
+   offline - the SENSOR_LOST path handles that case. */
+void StateMachine::checkValveCurrent() {
+#if VALVE_LEAK_CHECK_ENABLED
+    if (!_valveEnergized) {
+        _valveNoCurrentCount = 0;
+        return;
+    }
+    const uint32_t now = millis();
+    if (now - _valveCommandMs < VALVE_CURRENT_GRACE_MS) return;
+    if (now - _valveCheckMs < VALVE_CURRENT_CHECK_MS) return;
+    _valveCheckMs = now;
+    if (!sensorPacketFresh()) return;
+    if (sensors.valveAdcMillivolts < VALVE_CURRENT_MIN_MV) {
+        if (_valveNoCurrentCount < 255) _valveNoCurrentCount++;
+    } else {
+        _valveNoCurrentCount = 0;
+    }
+    if (_valveNoCurrentCount >= VALVE_CURRENT_FAULT_COUNT) {
+        Serial.println(F("Valve coil fault - no current while commanded on"));
+        stopWith(StopReason::VALVE_NO_CURRENT);
+    }
+#endif
 }
 
 void StateMachine::updateFan() {
