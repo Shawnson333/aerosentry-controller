@@ -224,11 +224,19 @@ No extra I2C pull-ups. The SHT31 modules already have them. Power both modules f
 - MeshCore on the Heltec WiFi LoRa 32 V4.3 is the remote-control path, not only a monitor. The board has the OLED. GPS is unplugged. The local link is ESP-NOW channel 1, not I2C and not an RS485 adapter. See "Next: Heltec V4" above.
 - SD logging is still deferred. The clock module is the DS3231 described below.
 
-## Future unattended recharge (not V1)
+## Recharge valve logic — 2026-11-14
 
-A later version may add two solenoid valves. Closing/rerouting the valves would change the dryer from the engine's closed loop to an open circuit vented to atmosphere, allowing Recharge to run without the user disconnecting lines.
+The US Solid 3-way normally-closed 12V valve is mapped to K6 (P0.5). Energized = open loop (engine isolated, vent outside). De-energized = closed loop (engine connected). Power loss returns to closed loop.
 
-Design provision: keep relay mapping expandable and mode-specific hardware actions inside the state machine. Do not assign relay channels 4-8 permanently until the valve sequence and fail-safe positions are defined. A future automatic recharge must include valve-position confirmation, timeout handling, and a safe power-loss state before it is enabled.
+Recharge flow: heat to 240F, pulse until three good samples, then **cool down** — 1 hour with the heater off, pump running, still venting outside — then a **safety check**: two rounds of 10-second pump pulse plus 1-minute sample. Both samples at or below 15% closes the valves and completes the cycle. A sample above 15% is a hard fail-safe: valves close, error to the app, system idle.
+
+Valve position verification: once the chamber has actually reached 240F and the pump is moving air, if From-Engine is within 10% of To-Engine, or From-Engine is lost while venting, the valve may not have isolated the engine. That triggers the failure cool down — 1 hour with valves open and pump running, heater off — then valves close and the system idles. The check is armed only after real heat-up, and `VALVE_LEAK_CHECK_ENABLED` in `config.h` can be set to 0 for bench testing, because on the bench both probes read the same room air and the check would always trip once heated.
+
+If saturation stops a manual or auto cycle and "Allow Auto Recharge Cycles" is checked, recharge starts automatically and the previous cycle resumes after the safety checks pass. Start and end times are logged. A manual recharge never resumes a cycle.
+
+First bench finding: manual recharge stopped instantly with "To-Engine sensor lost" — that was the valve leak check tripping on bench air (both probes within 2%) and reusing the sensor-lost message. Fixed by arming the check on chamber heat-up and giving it its own stop reason.
+
+The old unattended-recharge provision is now implemented: the valve reroutes to an open circuit vented to atmosphere, valve-position confirmation uses the From-Engine probe, the failure fail-safe is the cool down described above, and power loss returns the normally-closed valve to the engine loop. K7 and K8 remain unassigned.
 
 ## Clock
 

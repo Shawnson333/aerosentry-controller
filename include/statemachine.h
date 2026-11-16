@@ -36,7 +36,9 @@ enum class StopReason {
     SENSOR_LOST,
     RECHARGE_COMPLETE,
     RECHARGE_MAX_TIME,
-    THERMAL
+    THERMAL,
+    VALVE_SUSPECT,
+    SAFETY_FAILED
 };
 
 struct ModeConfig {
@@ -111,6 +113,10 @@ private:
     bool _valveEnergized;
     bool _appliedValve;
     bool _rechargeTriggeredByCycle; // true if recharge was triggered by saturation during dryer/auto
+    SystemMode _rechargeResumeMode; // Cycle to resume after a successful auto recharge
+    bool _rechargeFailure;          // true while running the failure cool down
+    StopReason _rechargeFailureReason;
+    bool _chamberReachedTarget;     // Arms the valve leak check after real heat-up
     uint8_t _autoQuickCycles;       // Count of 10-min quick cycles attempted
     uint8_t _safetyCheckCount;      // Safety check pulses completed (0, 1, 2)
     uint32_t _rechargeStartEpoch;   // Epoch when recharge started, for logging
@@ -142,6 +148,7 @@ private:
     void setAutoPhase(AutoPhase phase);
     void setRechargePhase(RechargePhase phase);
     void setValve(bool on);
+    void rechargeFailureCooldown(StopReason reason);
     uint32_t phaseElapsed() const;
     uint32_t phaseRemaining(uint32_t totalMs) const;
 };

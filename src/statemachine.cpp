@@ -58,6 +58,10 @@ StateMachine::StateMachine()
     , _valveEnergized(false)
     , _appliedValve(false)
     , _rechargeTriggeredByCycle(false)
+    , _rechargeResumeMode(SystemMode::IDLE)
+    , _rechargeFailure(false)
+    , _rechargeFailureReason(StopReason::NONE)
+    , _chamberReachedTarget(false)
     , _autoQuickCycles(0)
     , _safetyCheckCount(0)
     , _rechargeStartEpoch(0)
@@ -91,6 +95,10 @@ void StateMachine::begin() {
     _valveEnergized = false;
     _appliedValve = false;
     _rechargeTriggeredByCycle = false;
+    _rechargeResumeMode = SystemMode::IDLE;
+    _rechargeFailure = false;
+    _rechargeFailureReason = StopReason::NONE;
+    _chamberReachedTarget = false;
     _autoQuickCycles = 0;
     _safetyCheckCount = 0;
     _rechargeStartEpoch = 0;
@@ -123,7 +131,11 @@ bool StateMachine::handleCommand() {
         _autoQuickCycles = 0;
         enterMode(SystemMode::DRYER_AUTO);
     }
-    else if (cmd == Command::START_RECHARGE) enterMode(SystemMode::RECHARGE);
+    else if (cmd == Command::START_RECHARGE) {
+        _rechargeTriggeredByCycle = false;
+        _rechargeResumeMode = SystemMode::IDLE;
+        enterMode(SystemMode::RECHARGE);
+    }
     return true;
 }
 
@@ -136,7 +148,11 @@ void StateMachine::update() {
     }
     if (_mode != SystemMode::IDLE) {
         if (!sensorsOkForMode()) {
-            stopWith(StopReason::SENSOR_LOST);
+            if (_mode == SystemMode::RECHARGE && _valveEnergized && _chamberReachedTarget) {
+                rechargeFailureCooldown(StopReason::SENSOR_LOST);
+            } else {
+                stopWith(StopReason::SENSOR_LOST);
+            }
         } else {
             if (_inGracePeriod && (millis() - _modeStartTime >= GRACE_MS)) {
                 _inGracePeriod = false;
@@ -203,6 +219,7 @@ const char* StateMachine::takeStopMessage() {
 }
 
 void StateMachine::enterMode(SystemMode newMode) {
+    SystemMode oldMode = _mode;
     _mode = newMode;
     _modeStartTime = millis();
     _phaseStartTime = _modeStartTime;
@@ -237,12 +254,15 @@ void StateMachine::enterMode(SystemMode newMode) {
             _valveEnergized = true;
             setValve(true);
             _rechargeStartEpoch = systemClockEpoch();
+            _rechargeFailure = false;
+            _rechargeFailureReason = StopReason::NONE;
+            _chamberReachedTarget = false;
             Serial.println(F("Recharge started - valve open loop"));
             break;
         default:
             break;
     }
-    logger.logModeChange(SystemMode::IDLE, newMode);
+    logger.logModeChange(oldMode, newMode);
     Serial.print(F("Mode -> "));
     Serial.println(systemModeName(newMode));
 }
@@ -256,6 +276,7 @@ void StateMachine::stopWith(StopReason reason) {
     _heaterOn = false;
     _fanOn = false;
     _valveEnergized = false;
+    _appliedValve = false;
     setValve(false);
     _inGracePeriod = false;
     _pendingCmd = Command::NONE;
@@ -267,6 +288,10 @@ void StateMachine::stopWith(StopReason reason) {
     _stopReason = reason;
     if (oldMode == SystemMode::RECHARGE) {
         _rechargeEndEpoch = systemClockEpoch();
+        _rechargeFailure = false;
+        _chamberReachedTarget = false;
+        _rechargeTriggeredByCycle = false;
+        _rechargeResumeMode = SystemMode::IDLE;
         Serial.println(F("Recharge ended - valve closed loop"));
     }
     if (reason == StopReason::USER || oldMode == SystemMode::IDLE) {
@@ -291,6 +316,10 @@ void StateMachine::stopWith(StopReason reason) {
         _stopMessage = "Recharge stopped.\n3 hour limit reached.";
     } else if (reason == StopReason::THERMAL) {
         _stopMessage = "Thermal limit reached.\nHeater and pump are off.";
+    } else if (reason == StopReason::VALVE_SUSPECT) {
+        _stopMessage = "Valve position suspect.\nFrom-Engine near To-Engine.\nValves closed.";
+    } else if (reason == StopReason::SAFETY_FAILED) {
+        _stopMessage = "Safety check failed.\nSample above 15%.\nValves closed.";
     } else {
         _stopMessage = "Cycle stopped.";
     }
@@ -391,22 +420,37 @@ void StateMachine::updateRecharge() {
     }
     regulateHeater();
 
-    /* Valve position safety check while energized (open loop).
-       From-Engine should read ambient, well below To-Engine. */
-    if (_valveEnergized && toEngineReady() && fromEngineReady()) {
-        float diff = sensors.toEngineRH - sensors.fromEngineRH;
-        if (diff < VALVE_LEAK_THRESHOLD_RH) {
-            Serial.println(F("Valve leak suspected - From-Engine near To-Engine"));
-            stopWith(StopReason::SENSOR_LOST);
+#if VALVE_LEAK_CHECK_ENABLED
+    /* Valve position verification while the pump moves air and the
+       desiccant has actually been heated. On the bench the chamber never
+       reaches target, so this stays disarmed. From-Engine should read
+       ambient, well below To-Engine, while the engine is isolated. */
+    const bool pumpMovingAir = (_rechargePhase == RechargePhase::PULSE_ON ||
+                                _rechargePhase == RechargePhase::COOLDOWN ||
+                                _rechargePhase == RechargePhase::SAFETY_PULSE);
+    if (_valveEnergized && _chamberReachedTarget && pumpMovingAir) {
+        if (toEngineReady() && !fromEngineReady()) {
+            Serial.println(F("Valve check: From-Engine lost while venting"));
+            rechargeFailureCooldown(StopReason::SENSOR_LOST);
             return;
         }
+        if (toEngineReady() && fromEngineReady()) {
+            const float diff = sensors.toEngineRH - sensors.fromEngineRH;
+            if (diff < VALVE_LEAK_THRESHOLD_RH) {
+                Serial.println(F("Valve leak suspected - From-Engine near To-Engine"));
+                rechargeFailureCooldown(StopReason::VALVE_SUSPECT);
+                return;
+            }
+        }
     }
+#endif
 
     switch (_rechargePhase) {
         case RechargePhase::HEATING:
             _pumpOn = false;
             if (chamberReady() &&
                 celsiusToFahrenheit(sensors.chamberTemp) >= (float)RECHARGE_TARGET_TEMP_F) {
+                _chamberReachedTarget = true;
                 setRechargePhase(RechargePhase::PULSE_ON);
             }
             break;
@@ -437,6 +481,13 @@ void StateMachine::updateRecharge() {
             _pumpOn = true;
             _fanOn = true;
             if (phaseElapsed() >= RECHARGE_COOLDOWN_MS) {
+                if (_rechargeFailure) {
+                    StopReason reason = _rechargeFailureReason;
+                    _valveEnergized = false;
+                    _rechargeEndEpoch = systemClockEpoch();
+                    stopWith(reason);
+                    return;
+                }
                 _safetyCheckCount = 0;
                 setRechargePhase(RechargePhase::SAFETY_PULSE);
             }
@@ -458,11 +509,26 @@ void StateMachine::updateRecharge() {
                     _safetyCheckCount++;
                     if (_safetyCheckCount >= SAFETY_SAMPLE_COUNT) {
                         _valveEnergized = false;
-                        setValve(false);
                         _rechargeEndEpoch = systemClockEpoch();
+                        if (_rechargeTriggeredByCycle &&
+                            (_rechargeResumeMode == SystemMode::DRYER_MANUAL ||
+                             _rechargeResumeMode == SystemMode::DRYER_AUTO)) {
+                            SystemMode resumeMode = _rechargeResumeMode;
+                            _rechargeTriggeredByCycle = false;
+                            _rechargeResumeMode = SystemMode::IDLE;
+                            Serial.println(F("Recharge complete - resuming previous cycle"));
+                            enterMode(resumeMode);
+                            return;
+                        }
                         stopWith(StopReason::RECHARGE_COMPLETE);
                         return;
                     }
+                } else {
+                    Serial.println(F("Safety sample above 15% - fail safe to idle"));
+                    _valveEnergized = false;
+                    _rechargeEndEpoch = systemClockEpoch();
+                    stopWith(StopReason::SAFETY_FAILED);
+                    return;
                 }
                 setRechargePhase(RechargePhase::SAFETY_PULSE);
             }
@@ -545,6 +611,17 @@ void StateMachine::setValve(bool on) {
     else relay.setChannel(RELAY_BIT_VALVE, false);
 }
 
+/* On any recharge failure, keep venting outside and cool the chamber for the
+   full cool down window before closing the valves and going idle. */
+void StateMachine::rechargeFailureCooldown(StopReason reason) {
+    _rechargeFailure = true;
+    _rechargeFailureReason = reason;
+    _heaterOn = false;
+    Serial.print(F("Recharge failure - cool down, valve stays open, reason "));
+    Serial.println((int)reason);
+    setRechargePhase(RechargePhase::COOLDOWN);
+}
+
 void StateMachine::updateFan() {
     static uint32_t lastRead = 0;
     const uint32_t now = millis();
@@ -581,6 +658,7 @@ void StateMachine::checkSaturation() {
             if (config.allowAutoRecharge) {
                 Serial.println(F("Saturation reached - starting automatic recharge"));
                 _rechargeTriggeredByCycle = true;
+                _rechargeResumeMode = _mode;
                 enterMode(SystemMode::RECHARGE);
                 return;
             }

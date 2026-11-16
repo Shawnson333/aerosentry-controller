@@ -83,6 +83,10 @@
    should read ambient humidity, well below To-Engine. If From-Engine is within
    this many percent of To-Engine, the valve may not have isolated the engine. */
 #define VALVE_LEAK_THRESHOLD_RH  10.0f   // From-Engine within 10% of To-Engine = suspect
+/* Set to 0 for bench recharge testing. On the bench both probes read the same
+   room air, so a live leak check would always trip once the chamber is hot.
+   In the installed system keep this 1. */
+#define VALVE_LEAK_CHECK_ENABLED 1
 #define LOG_INTERVAL_MS         30000UL    // Log every sensor while a cycle runs
 #define PURGE_RECENT_MS         3600000UL  // Dryer warns if no qualified purge in this window
 #define PURGE_QUALIFY_MS        60000UL    // Pump must run this long before a purge counts
