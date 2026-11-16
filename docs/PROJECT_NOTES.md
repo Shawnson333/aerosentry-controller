@@ -30,35 +30,41 @@ The stainless SHT40 probes use high-precision command `0xFD`. Their addresses ca
 
 ## Wiring — no-display Heltec V4.3
 
-Power every sensor from a header 3V3 pin and a header GND. Do not use 5V. Do not use the Ve pins. Do not add pull-up resistors.
+Power every sensor from a side-header 3V3 pin and a side-header GND pin. Do not use 5V. Do not use the Ve pins. Do not add pull-up resistors.
+
+Probe wire key used for the working bench wiring: **red = 3V3, black = GND, yellow = SCL, green = SDA**. The supplied probe diagram labels green as SCL as well as yellow. That is a documentation typo. Green is the data line.
+
+With the board component-side up and USB-C at the bottom, the four positions on the small top connector are, left to right: **GPIO 15, GPIO 16, GPIO 17, GPIO 18**. That connector has no power or ground pins.
 
 To-Engine SHT40, top connector:
 
-| Heltec pin | Probe wire |
-| --- | --- |
-| GPIO 17 | SDA |
-| GPIO 18 | SCL |
-| 3V3 | VCC |
-| GND | GND |
+| Location | Heltec pin | Probe wire |
+| --- | --- | --- |
+| Top connector, third from left | GPIO 17 | Green, SDA |
+| Top connector, fourth from left | GPIO 18 | Yellow, SCL |
+| Side header J3, pin 2 or 3 | 3V3 | Red, VCC |
+| Side header J3, pin 1 | GND | Black |
 
 From-Engine SHT40, same top connector:
 
-| Heltec pin | Probe wire |
+| Location | Heltec pin | Probe wire |
+| --- | --- | --- |
+| Top connector, first from left | GPIO 15 | Green, SDA |
+| Top connector, second from left | GPIO 16 | Yellow, SCL |
+| Side header J3, pin 2 or 3 | 3V3 | Red, VCC |
+| Side header J3, pin 1 | GND | Black |
+
+GPIO 26 and 33 are not used.
+
+Chamber thermistor, side header J3:
+
+| Location | Connection |
 | --- | --- |
-| GPIO 15 | SDA |
-| GPIO 16 | SCL |
-| 3V3 | VCC |
-| GND | GND |
+| J3 pin 2 or 3, 3V3 | One thermistor lead |
+| J3 pin 15, GPIO 4 | Other thermistor lead, and one side of the 10k resistor |
+| J3 pin 1, GND | Other side of the 10k resistor |
 
-The top connector has no power pins. Both probes still take 3V3 and GND from the side header. GPIO 26 and 33 are no longer used.
-
-Chamber thermistor, header J3:
-
-| Heltec pin | Connection |
-| --- | --- |
-| 3V3 | One thermistor lead |
-| GPIO 4 | Other thermistor lead, and one side of the 10k resistor |
-| GND | Other side of the 10k resistor |
+The thermistor and resistor are not polarized.
 
 Do not use GPIO 2, 5, or 7. Those are the power amplifier. Do not use GPIO 8 through 14. Those are LoRa. Do not use GPIO 19 or 20. Those are USB. Do not use GPIO 36. That pin switches peripheral power. Do not use GPIO 1. That pin reads the battery.
 
