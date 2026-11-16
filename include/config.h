@@ -34,14 +34,19 @@
       bit 3 / K4 = Case fan. On while the pump runs, for all of recharge,
                    and while the Waveshare chip is hot.
       bit 4 / K5 = AUX, named but not driven by any mode
-      bits 0, 5, 6, 7 = K1 and K6-K8, never energized
+      bit 5 / K6 = Recharge valve. Energized = open loop (isolate engine,
+                 vent to outside). De-energized = closed loop (engine
+                 connected). Normally closed valve: power loss = closed loop.
+      bits 0, 6, 7 = K1 and K7-K8, never energized
 */
 #define RELAY_BIT_PUMP      1
 #define RELAY_BIT_HEATER    2
 #define RELAY_BIT_FAN       3
 #define RELAY_BIT_AUX       4
+#define RELAY_BIT_VALVE     5
 #define RELAY_ALLOWED_MASK  ((1 << RELAY_BIT_PUMP) | (1 << RELAY_BIT_HEATER) | \
-                             (1 << RELAY_BIT_FAN) | (1 << RELAY_BIT_AUX))
+                             (1 << RELAY_BIT_FAN) | (1 << RELAY_BIT_AUX) | \
+                             (1 << RELAY_BIT_VALVE))
 
 /* --- Safety / cycle timing (best guesses; tune after testing) --- */
 #define SAT_LIMIT_RH            40.0f   // To-Engine RH hard-stop (%). Not used in Recharge.
@@ -57,6 +62,9 @@
 #define AUTO_SAMPLE_INTERVAL_MS 3600000UL // Auto: 1 hour between samples
 #define AUTO_SAMPLE_RUN_MS      10000UL   // Auto: pump 10 seconds before a sample
 #define AUTO_SAMPLE_SETTLE_MS   30000UL   // Auto: pause 30 seconds to acclimate
+#define AUTO_MAX_RUN_MS         600000UL  // Auto: max continuous pump run 10 min
+#define AUTO_COOLDOWN_MS        600000UL  // Auto: cooldown between quick cycles 10 min
+#define AUTO_MAX_QUICK_CYCLES   3         // Auto: max quick cycles before regular rotation
 
 #define RECHARGE_MAX_MS         10800000UL // Recharge max 3 hours
 #define RECHARGE_TARGET_RH      15.0f      // To-Engine RH that counts as a good cycle
@@ -65,6 +73,16 @@
 #define RECHARGE_TEMP_HYSTERESIS_F 5       // Heater back on this far below target
 #define RECHARGE_PULSE_ON_MS    10000UL    // Recharge pump on time
 #define RECHARGE_PULSE_WAIT_MS  60000UL    // Recharge wait between pulses
+#define RECHARGE_COOLDOWN_MS    3600000UL  // Recharge cool down 1 hour, valves open loop
+#define SAFETY_PULSE_MS         10000UL    // Safety check pump run 10 sec
+#define SAFETY_SAMPLE_INTERVAL_MS 60000UL  // Safety check sample delay 1 min
+#define SAFETY_SAMPLE_INTERVAL_MS 60000UL  // Safety check sample delay 1 min
+#define SAFETY_SAMPLE_COUNT     2          // Safety check runs twice
+
+/* Valve position verification. During open loop (valve energized), From-Engine
+   should read ambient humidity, well below To-Engine. If From-Engine is within
+   this many percent of To-Engine, the valve may not have isolated the engine. */
+#define VALVE_LEAK_THRESHOLD_RH  10.0f   // From-Engine within 10% of To-Engine = suspect
 #define LOG_INTERVAL_MS         30000UL    // Log every sensor while a cycle runs
 #define PURGE_RECENT_MS         3600000UL  // Dryer warns if no qualified purge in this window
 #define PURGE_QUALIFY_MS        60000UL    // Pump must run this long before a purge counts

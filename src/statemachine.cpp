@@ -55,6 +55,13 @@ StateMachine::StateMachine()
     , _pumpOn(false)
     , _heaterOn(false)
     , _fanOn(false)
+    , _valveEnergized(false)
+    , _appliedValve(false)
+    , _rechargeTriggeredByCycle(false)
+    , _autoQuickCycles(0)
+    , _safetyCheckCount(0)
+    , _rechargeStartEpoch(0)
+    , _rechargeEndEpoch(0)
     , _appliedPump(false)
     , _appliedHeater(false)
     , _appliedFan(false)
@@ -70,6 +77,7 @@ StateMachine::StateMachine()
     config.dryerOnMinutes = 3;
     config.dryerOffHours = 1;
     config.dryerTargetRH = 20;
+    config.allowAutoRecharge = false;
 }
 
 void StateMachine::begin() {
@@ -80,6 +88,13 @@ void StateMachine::begin() {
     _pumpOn = false;
     _heaterOn = false;
     _fanOn = false;
+    _valveEnergized = false;
+    _appliedValve = false;
+    _rechargeTriggeredByCycle = false;
+    _autoQuickCycles = 0;
+    _safetyCheckCount = 0;
+    _rechargeStartEpoch = 0;
+    _rechargeEndEpoch = 0;
     _appliedPump = false;
     _appliedHeater = false;
     _appliedFan = false;
@@ -100,8 +115,14 @@ bool StateMachine::handleCommand() {
     }
     if (_mode != SystemMode::IDLE || startBlockReason(cmd) != nullptr) return true;
     if (cmd == Command::START_PURGE) enterMode(SystemMode::PURGE);
-    else if (cmd == Command::START_DRYER_MANUAL) enterMode(SystemMode::DRYER_MANUAL);
-    else if (cmd == Command::START_DRYER_AUTO) enterMode(SystemMode::DRYER_AUTO);
+    else if (cmd == Command::START_DRYER_MANUAL) {
+        _autoQuickCycles = 0;
+        enterMode(SystemMode::DRYER_MANUAL);
+    }
+    else if (cmd == Command::START_DRYER_AUTO) {
+        _autoQuickCycles = 0;
+        enterMode(SystemMode::DRYER_AUTO);
+    }
     else if (cmd == Command::START_RECHARGE) enterMode(SystemMode::RECHARGE);
     return true;
 }
@@ -146,12 +167,12 @@ const char* StateMachine::startBlockReason(Command cmd) const {
         case Command::START_PURGE:
         case Command::START_DRYER_MANUAL:
             if (!toEngineReady()) {
-                return "To-Engine sensor unavailable.\nCheck the XIAO sensor node and try again.";
+                return "To-Engine sensor unavailable.\nCheck the sensor node and try again.";
             }
             return nullptr;
         case Command::START_DRYER_AUTO:
             if (!toEngineReady() || !fromEngineReady()) {
-                return "Auto Cycle needs both sensors.\nCheck the XIAO sensor node and try again.";
+                return "Auto Cycle needs both sensors.\nCheck the sensor node and try again.";
             }
             return nullptr;
         case Command::START_RECHARGE:
@@ -194,22 +215,29 @@ void StateMachine::enterMode(SystemMode newMode) {
     _heaterOn = false;
     _pumpOn = false;
     _fanOn = false;
+    _safetyCheckCount = 0;
     switch (newMode) {
         case SystemMode::PURGE:
             _pumpOn = true;
             _purgeQualified = false;
             break;
         case SystemMode::DRYER_MANUAL:
+            _autoQuickCycles = 0;
             _manualPhase = ManualPhase::ON;
             _pumpOn = true;
             break;
         case SystemMode::DRYER_AUTO:
+            _autoQuickCycles = 0;
             _autoPhase = AutoPhase::DRYING;
             _pumpOn = true;
             break;
         case SystemMode::RECHARGE:
             _rechargePhase = RechargePhase::HEATING;
             _heaterOn = true;
+            _valveEnergized = true;
+            setValve(true);
+            _rechargeStartEpoch = systemClockEpoch();
+            Serial.println(F("Recharge started - valve open loop"));
             break;
         default:
             break;
@@ -227,6 +255,8 @@ void StateMachine::stopWith(StopReason reason) {
     _pumpOn = false;
     _heaterOn = false;
     _fanOn = false;
+    _valveEnergized = false;
+    setValve(false);
     _inGracePeriod = false;
     _pendingCmd = Command::NONE;
     resetSaturation();
@@ -235,6 +265,10 @@ void StateMachine::stopWith(StopReason reason) {
     _appliedHeater = false;
     _appliedFan = false;
     _stopReason = reason;
+    if (oldMode == SystemMode::RECHARGE) {
+        _rechargeEndEpoch = systemClockEpoch();
+        Serial.println(F("Recharge ended - valve closed loop"));
+    }
     if (reason == StopReason::USER || oldMode == SystemMode::IDLE) {
         _stopMessage = nullptr;
     } else if (reason == StopReason::SATURATED) {
@@ -300,6 +334,31 @@ void StateMachine::updateAuto() {
         case AutoPhase::DRYING:
             _pumpOn = true;
             if (fromEngineSampleReady() && sensors.fromEngineRH <= target) {
+                _autoQuickCycles = 0;
+                setAutoPhase(AutoPhase::WAITING);
+            } else if (phaseElapsed() >= AUTO_MAX_RUN_MS) {
+                _pumpOn = false;
+                setAutoPhase(AutoPhase::COOLDOWN);
+            }
+            break;
+        case AutoPhase::COOLDOWN:
+            _pumpOn = false;
+            if (phaseElapsed() >= AUTO_COOLDOWN_MS) {
+                setAutoPhase(AutoPhase::QUICK_SAMPLE);
+            }
+            break;
+        case AutoPhase::QUICK_SAMPLE:
+            _pumpOn = false;
+            if (phaseElapsed() < AUTO_SAMPLE_RUN_MS) break;
+            if (!fromEngineSampleReady()) break;
+            if (sensors.fromEngineRH <= target) {
+                _autoQuickCycles = 0;
+                setAutoPhase(AutoPhase::WAITING);
+            } else if (_autoQuickCycles < AUTO_MAX_QUICK_CYCLES) {
+                _autoQuickCycles++;
+                setAutoPhase(AutoPhase::DRYING);
+            } else {
+                _autoQuickCycles = 0;
                 setAutoPhase(AutoPhase::WAITING);
             }
             break;
@@ -331,6 +390,18 @@ void StateMachine::updateRecharge() {
         return;
     }
     regulateHeater();
+
+    /* Valve position safety check while energized (open loop).
+       From-Engine should read ambient, well below To-Engine. */
+    if (_valveEnergized && toEngineReady() && fromEngineReady()) {
+        float diff = sensors.toEngineRH - sensors.fromEngineRH;
+        if (diff < VALVE_LEAK_THRESHOLD_RH) {
+            Serial.println(F("Valve leak suspected - From-Engine near To-Engine"));
+            stopWith(StopReason::SENSOR_LOST);
+            return;
+        }
+    }
+
     switch (_rechargePhase) {
         case RechargePhase::HEATING:
             _pumpOn = false;
@@ -350,7 +421,7 @@ void StateMachine::updateRecharge() {
             Serial.printf("Recharge sample %.1f%% good %u/%u\n",
                           sensors.toEngineRH, _rechargeGoodCycles, RECHARGE_GOOD_CYCLES);
             if (_rechargeGoodCycles >= RECHARGE_GOOD_CYCLES) {
-                stopWith(StopReason::RECHARGE_COMPLETE);
+                setRechargePhase(RechargePhase::COOLDOWN);
                 return;
             }
             setRechargePhase(RechargePhase::PULSE_WAIT);
@@ -359,6 +430,41 @@ void StateMachine::updateRecharge() {
             _pumpOn = false;
             if (phaseElapsed() >= RECHARGE_PULSE_WAIT_MS) {
                 setRechargePhase(RechargePhase::PULSE_ON);
+            }
+            break;
+        case RechargePhase::COOLDOWN:
+            _heaterOn = false;
+            _pumpOn = true;
+            _fanOn = true;
+            if (phaseElapsed() >= RECHARGE_COOLDOWN_MS) {
+                _safetyCheckCount = 0;
+                setRechargePhase(RechargePhase::SAFETY_PULSE);
+            }
+            break;
+        case RechargePhase::SAFETY_PULSE:
+            _heaterOn = false;
+            _pumpOn = true;
+            if (phaseElapsed() >= SAFETY_PULSE_MS) {
+                _pumpOn = false;
+                setRechargePhase(RechargePhase::SAFETY_WAIT);
+            }
+            break;
+        case RechargePhase::SAFETY_WAIT:
+            _heaterOn = false;
+            _pumpOn = false;
+            if (phaseElapsed() >= SAFETY_SAMPLE_INTERVAL_MS) {
+                if (!toEngineSampleReady()) break;
+                if (sensors.toEngineRH <= RECHARGE_TARGET_RH) {
+                    _safetyCheckCount++;
+                    if (_safetyCheckCount >= SAFETY_SAMPLE_COUNT) {
+                        _valveEnergized = false;
+                        setValve(false);
+                        _rechargeEndEpoch = systemClockEpoch();
+                        stopWith(StopReason::RECHARGE_COMPLETE);
+                        return;
+                    }
+                }
+                setRechargePhase(RechargePhase::SAFETY_PULSE);
             }
             break;
     }
@@ -434,6 +540,11 @@ void StateMachine::regulateHeater() {
     }
 }
 
+void StateMachine::setValve(bool on) {
+    if (on) relay.setChannel(RELAY_BIT_VALVE, true);
+    else relay.setChannel(RELAY_BIT_VALVE, false);
+}
+
 void StateMachine::updateFan() {
     static uint32_t lastRead = 0;
     const uint32_t now = millis();
@@ -450,7 +561,7 @@ void StateMachine::updateFan() {
 }
 
 void StateMachine::checkSaturation() {
-    if (_mode == SystemMode::IDLE || _mode == SystemMode::RECHARGE || _inGracePeriod) {
+    if (_mode == SystemMode::IDLE || _inGracePeriod) {
         resetSaturation();
         return;
     }
@@ -466,6 +577,14 @@ void StateMachine::checkSaturation() {
         return;
     }
     if (now - _saturationMark >= SAT_HOLD_MS) {
+        if (_mode == SystemMode::DRYER_MANUAL || _mode == SystemMode::DRYER_AUTO) {
+            if (config.allowAutoRecharge) {
+                Serial.println(F("Saturation reached - starting automatic recharge"));
+                _rechargeTriggeredByCycle = true;
+                enterMode(SystemMode::RECHARGE);
+                return;
+            }
+        }
         stopWith(StopReason::SATURATED);
     }
 }
@@ -493,6 +612,12 @@ void StateMachine::applyOutputs() {
         else relay.fanOff();
         _appliedFan = _fanOn;
         Serial.println(_fanOn ? F("Case fan ON") : F("Case fan OFF"));
+    }
+    if (_valveEnergized != _appliedValve) {
+        if (_valveEnergized) relay.setChannel(RELAY_BIT_VALVE, true);
+        else relay.setChannel(RELAY_BIT_VALVE, false);
+        _appliedValve = _valveEnergized;
+        Serial.println(_valveEnergized ? F("Valve OPEN loop") : F("Valve CLOSED loop"));
     }
 }
 
@@ -565,7 +690,7 @@ const char* StateMachine::statusText() const {
     if (_mode == SystemMode::IDLE) {
         if (!sensorPacketFresh()) return "Sensors offline";
         if (!sensors.toValid && !sensors.fromValid && !sensors.chamberValid) {
-            return "XIAO online, sensors not wired";
+            return "Sensor node online, sensors not wired";
         }
         if (!sensors.toValid) return "To-Engine sensor offline";
         if (!sensors.fromValid) return "From-Engine sensor offline";
@@ -592,6 +717,16 @@ const char* StateMachine::statusText() const {
                 case AutoPhase::DRYING:
                     snprintf(buf, sizeof(buf), "Drying until From-Engine <= %u%%",
                              config.dryerTargetRH);
+                    return buf;
+                case AutoPhase::COOLDOWN:
+                    formatDuration(remain, sizeof(remain), phaseRemaining(AUTO_COOLDOWN_MS));
+                    snprintf(buf, sizeof(buf), "Cooling %s, %u/%u quick", remain,
+                             _autoQuickCycles, AUTO_MAX_QUICK_CYCLES);
+                    return buf;
+                case AutoPhase::QUICK_SAMPLE:
+                    formatDuration(remain, sizeof(remain),
+                                   phaseRemaining(AUTO_SAMPLE_RUN_MS));
+                    snprintf(buf, sizeof(buf), "Quick sample, %s left", remain);
                     return buf;
                 case AutoPhase::WAITING:
                     formatDuration(remain, sizeof(remain), phaseRemaining(AUTO_SAMPLE_INTERVAL_MS));
@@ -629,6 +764,20 @@ const char* StateMachine::statusText() const {
                     formatDuration(remain, sizeof(remain), phaseRemaining(RECHARGE_PULSE_WAIT_MS));
                     snprintf(buf, sizeof(buf), "Pulse wait %s, %u/%u dry",
                              remain, _rechargeGoodCycles, RECHARGE_GOOD_CYCLES);
+                    return buf;
+                case RechargePhase::COOLDOWN:
+                    formatDuration(remain, sizeof(remain), phaseRemaining(RECHARGE_COOLDOWN_MS));
+                    snprintf(buf, sizeof(buf), "Cool down %s, vent outside", remain);
+                    return buf;
+                case RechargePhase::SAFETY_PULSE:
+                    formatDuration(remain, sizeof(remain),
+                                   phaseRemaining(SAFETY_PULSE_MS));
+                    snprintf(buf, sizeof(buf), "Safety pulse %s", remain);
+                    return buf;
+                case RechargePhase::SAFETY_WAIT:
+                    formatDuration(remain, sizeof(remain),
+                                   phaseRemaining(SAFETY_SAMPLE_INTERVAL_MS));
+                    snprintf(buf, sizeof(buf), "Safety sample %s", remain);
                     return buf;
             }
             break;

@@ -9,7 +9,16 @@
 
 static lv_obj_t* autoScreen = nullptr;
 static lv_obj_t* targetLabel = nullptr;
+static lv_obj_t* autoRechargeCheck = nullptr;
 static uint8_t targetValue = 20;  // % RH
+
+static void cbAutoRechargeCheck(lv_event_t* e) {
+    (void)e;
+    if (autoRechargeCheck) {
+        stateMachine.config.allowAutoRecharge =
+            lv_obj_get_state(autoRechargeCheck) & LV_STATE_CHECKED;
+    }
+}
 
 static void cbPlusTarget(lv_event_t* e) {
     (void)e;
@@ -100,6 +109,18 @@ void uiShowAutoCycle() {
         lv_obj_set_style_text_color(targetLabel, lv_color_hex(UI_TEXT_COLOR), 0);
         lv_obj_set_style_text_font(targetLabel, &lv_font_montserrat_28, 0);
         makePlusMinus(autoScreen, 560, 145, cbPlusTarget, cbMinusTarget);
+
+        autoRechargeCheck = lv_checkbox_create(autoScreen);
+        lv_checkbox_set_text(autoRechargeCheck, "Allow Auto Recharge Cycles");
+        lv_obj_align(autoRechargeCheck, LV_ALIGN_TOP_MID, 0, 230);
+        lv_obj_set_style_text_color(autoRechargeCheck, lv_color_hex(UI_TEXT_COLOR), 0);
+        lv_obj_set_style_text_font(autoRechargeCheck, &lv_font_montserrat_20, 0);
+        lv_obj_add_event_cb(autoRechargeCheck, cbAutoRechargeCheck, LV_EVENT_VALUE_CHANGED, nullptr);
+        if (stateMachine.config.allowAutoRecharge) {
+            lv_obj_add_state(autoRechargeCheck, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(autoRechargeCheck, LV_STATE_CHECKED);
+        }
 
         int16_t btnW = 300, btnH = 70, gap = 30;
         int16_t startX = (DISPLAY_WIDTH - (btnW * 2 + gap)) / 2;

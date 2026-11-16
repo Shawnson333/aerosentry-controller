@@ -12,8 +12,17 @@ void uiShowAutoCycle();
 static lv_obj_t* setupScreen = nullptr;
 static lv_obj_t* onTimeLabel = nullptr;
 static lv_obj_t* offTimeLabel = nullptr;
+static lv_obj_t* autoRechargeCheck = nullptr;
 static uint8_t onTimeValue = 3;
 static uint16_t offTimeValue = 1;
+
+static void cbAutoRechargeCheck(lv_event_t* e) {
+    (void)e;
+    if (autoRechargeCheck) {
+        stateMachine.config.allowAutoRecharge =
+            lv_obj_get_state(autoRechargeCheck) & LV_STATE_CHECKED;
+    }
+}
 
 static void cbPlusOn(lv_event_t* e) {
     (void)e;
@@ -143,12 +152,24 @@ void uiShowDryerSetup() {
         lv_obj_set_style_text_font(offTimeLabel, &lv_font_montserrat_28, 0);
         makePlusMinus(setupScreen, 560, 220, cbPlusOff, cbMinusOff);
 
+        autoRechargeCheck = lv_checkbox_create(setupScreen);
+        lv_checkbox_set_text(autoRechargeCheck, "Allow Auto Recharge Cycles");
+        lv_obj_align(autoRechargeCheck, LV_ALIGN_TOP_MID, 0, 290);
+        lv_obj_set_style_text_color(autoRechargeCheck, lv_color_hex(UI_TEXT_COLOR), 0);
+        lv_obj_set_style_text_font(autoRechargeCheck, &lv_font_montserrat_20, 0);
+        lv_obj_add_event_cb(autoRechargeCheck, cbAutoRechargeCheck, LV_EVENT_VALUE_CHANGED, nullptr);
+        if (stateMachine.config.allowAutoRecharge) {
+            lv_obj_add_state(autoRechargeCheck, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(autoRechargeCheck, LV_STATE_CHECKED);
+        }
+
         int16_t btnW = 220, btnH = 60, gap = 20;
         int16_t bottomStartX = (DISPLAY_WIDTH - (btnW * 2 + gap)) / 2;
 
         lv_obj_t* btnAuto = lv_btn_create(setupScreen);
         lv_obj_set_size(btnAuto, btnW, btnH);
-        lv_obj_set_pos(btnAuto, (DISPLAY_WIDTH - btnW) / 2, 300);
+        lv_obj_set_pos(btnAuto, (DISPLAY_WIDTH - btnW) / 2, 330);
         lv_obj_set_style_bg_color(btnAuto, lv_color_hex(0x3399FF), 0);
         lv_obj_set_style_radius(btnAuto, 8, 0);
         lv_obj_add_event_cb(btnAuto, cbAutoCycle, LV_EVENT_CLICKED, nullptr);
@@ -160,7 +181,7 @@ void uiShowDryerSetup() {
 
         lv_obj_t* btnStart = lv_btn_create(setupScreen);
         lv_obj_set_size(btnStart, btnW, btnH);
-        lv_obj_set_pos(btnStart, bottomStartX + btnW + gap, 390);
+        lv_obj_set_pos(btnStart, bottomStartX + btnW + gap, 410);
         lv_obj_set_style_bg_color(btnStart, lv_color_hex(UI_ACCENT_COLOR), 0);
         lv_obj_set_style_radius(btnStart, 8, 0);
         lv_obj_add_event_cb(btnStart, cbStartDryer, LV_EVENT_CLICKED, nullptr);
@@ -171,7 +192,7 @@ void uiShowDryerSetup() {
 
         lv_obj_t* btnBack = lv_btn_create(setupScreen);
         lv_obj_set_size(btnBack, btnW, btnH);
-        lv_obj_set_pos(btnBack, bottomStartX, 390);
+        lv_obj_set_pos(btnBack, bottomStartX, 410);
         lv_obj_set_style_bg_color(btnBack, lv_color_hex(0x1A2E4A), 0);
         lv_obj_set_style_radius(btnBack, 8, 0);
         lv_obj_add_event_cb(btnBack, cbBack, LV_EVENT_CLICKED, nullptr);

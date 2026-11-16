@@ -22,6 +22,8 @@ status = {
     "mode": "Waiting for radio",
     "running": False,
     "relays": False,
+    "valve": False,
+    "autoRecharge": False,
     "toValid": False,
     "fromValid": False,
     "chamberValid": False,
@@ -57,6 +59,8 @@ def apply_status(fields):
         status["mode"] = fields.get("mode", "Unknown")
         status["running"] = fields.get("running") == "1"
         status["relays"] = fields.get("relays") == "1"
+        status["valve"] = fields.get("valve") == "1"
+        status["autoRecharge"] = fields.get("autoRecharge") == "1"
         status["toValid"] = fields.get("toValid") == "1"
         status["fromValid"] = fields.get("fromValid") == "1"
         status["chamberValid"] = fields.get("chamberValid") == "1"
@@ -138,14 +142,14 @@ def find_heltec():
     return None
 
 
-def send_command(name, on_min, off_hr, target):
+def send_command(name, on_min, off_hr, target, auto_recharge):
     global next_seq
     with port_lock:
         if link is None:
             return {"ok": False, "accepted": False, "text": "Heltec serial port is not open."}
         seq = next_seq
         next_seq += 1
-        link.write(f"CMD {seq} {name} {on_min} {off_hr} {target}\n".encode("ascii"))
+        link.write(f"CMD {seq} {name} {on_min} {off_hr} {target} {auto_recharge}\n".encode("ascii"))
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
         with status_lock:
@@ -213,6 +217,7 @@ class Handler(BaseHTTPRequestHandler):
             int(payload.get("dryerOnMinutes", 3)),
             int(payload.get("dryerOffHours", 1)),
             int(payload.get("dryerTargetRH", 20)),
+            1 if payload.get("autoRecharge") else 0,
         )
         self.send_json(result)
 

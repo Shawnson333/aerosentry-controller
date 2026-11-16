@@ -61,6 +61,8 @@ static void sendStatus() {
     if (chamberReady()) status.flags |= LINK_FLAG_CHAMBER;
     if (stateMachine.isRunning()) status.flags |= LINK_FLAG_RUNNING;
     if (relay.isReady()) status.flags |= LINK_FLAG_RELAYS;
+    if (stateMachine.valveOpen()) status.flags2 |= LINK_FLAG_VALVE >> 8;
+    if (stateMachine.autoRechargeAllowed()) status.flags2 |= LINK_FLAG_AUTO_RECHARGE >> 8;
     status.toRhCenti = (status.flags & LINK_FLAG_TO) ? (int16_t)(sensors.toEngineRH * 100.0f) : -1;
     status.fromRhCenti = (status.flags & LINK_FLAG_FROM) ? (int16_t)(sensors.fromEngineRH * 100.0f) : -1;
     if (status.flags & LINK_FLAG_CHAMBER) {
@@ -102,7 +104,13 @@ static void applyCommand(const LinkCommand &command) {
 
     if (mapped == Command::NONE) {
         copyText(ack.text, sizeof(ack.text), "Unknown command.");
-    } else if (mapped == Command::STOP) {
+    } else {
+        stateMachine.config.allowAutoRecharge = command.autoRecharge != 0;
+    }
+    if (mapped == Command::NONE) {
+        return;
+    }
+    if (mapped == Command::STOP) {
         const bool wasRunning = stateMachine.isRunning();
         stateMachine.command(Command::STOP);
         ack.accepted = 1;

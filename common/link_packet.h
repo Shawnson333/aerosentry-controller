@@ -25,6 +25,8 @@
 #define LINK_FLAG_CHAMBER  0x20
 #define LINK_FLAG_RUNNING  0x40
 #define LINK_FLAG_RELAYS   0x80
+#define LINK_FLAG_VALVE    0x100
+#define LINK_FLAG_AUTO_RECHARGE 0x200
 
 struct __attribute__((packed)) LinkCommand {
     uint8_t magic;
@@ -33,6 +35,8 @@ struct __attribute__((packed)) LinkCommand {
     uint8_t dryerOnMinutes;
     uint8_t dryerOffHours;
     uint8_t dryerTargetRH;
+    uint8_t autoRecharge;  // 1 = allow auto recharge
+    uint8_t spare;
     uint16_t sequence;
 };
 
@@ -50,6 +54,7 @@ struct __attribute__((packed)) LinkStatus {
     uint8_t kind;
     uint8_t mode;
     uint8_t flags;
+    uint8_t flags2;
     int16_t toRhCenti;
     int16_t fromRhCenti;
     int16_t chamberFTimes10;

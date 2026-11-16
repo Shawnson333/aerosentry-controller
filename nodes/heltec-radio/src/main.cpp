@@ -80,13 +80,15 @@ static void onReceive(const uint8_t *mac, const uint8_t *data, int len) {
     if (data[1] == LINK_KIND_STATUS && len == (int)sizeof(LinkStatus)) {
         LinkStatus status;
         memcpy(&status, data, sizeof(status));
-        Serial.printf("STATUS mode=%s running=%u relays=%u toValid=%u fromValid=%u chamberValid=%u toRh=",
+        Serial.printf("STATUS mode=%s running=%u relays=%u toValid=%u fromValid=%u chamberValid=%u valve=%u autoRecharge=%u toRh=",
                       modeName(status.mode),
                       (status.flags & LINK_FLAG_RUNNING) ? 1 : 0,
                       (status.flags & LINK_FLAG_RELAYS) ? 1 : 0,
                       (status.flags & LINK_FLAG_TO) ? 1 : 0,
                       (status.flags & LINK_FLAG_FROM) ? 1 : 0,
-                      (status.flags & LINK_FLAG_CHAMBER) ? 1 : 0);
+                      (status.flags & LINK_FLAG_CHAMBER) ? 1 : 0,
+                      (status.flags2 & (LINK_FLAG_VALVE >> 8)) ? 1 : 0,
+                      (status.flags2 & (LINK_FLAG_AUTO_RECHARGE >> 8)) ? 1 : 0);
         printCenti(status.toRhCenti);
         Serial.print(F(" fromRh="));
         printCenti(status.fromRhCenti);
@@ -116,7 +118,8 @@ static void handleLine() {
     unsigned onMin = 3;
     unsigned offHr = 1;
     unsigned target = 20;
-    if (sscanf(line, "CMD %u %15s %u %u %u", &seq, name, &onMin, &offHr, &target) < 2) return;
+    unsigned autoRecharge = 0;
+    if (sscanf(line, "CMD %u %15s %u %u %u %u", &seq, name, &onMin, &offHr, &target, &autoRecharge) < 2) return;
     const uint8_t code = commandCode(name);
     if (code == 0 || !radioReady) {
         Serial.printf("ACK seq=%u cmd=%s accepted=0 text=Command not sent.\n", seq, name);
@@ -129,6 +132,7 @@ static void handleLine() {
     command.dryerOnMinutes = (uint8_t)onMin;
     command.dryerOffHours = (uint8_t)offHr;
     command.dryerTargetRH = (uint8_t)target;
+    command.autoRecharge = (uint8_t)autoRecharge;
     command.sequence = (uint16_t)seq;
     const uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     if (esp_now_send(broadcast, (const uint8_t *)&command, sizeof(command)) != ESP_OK) {

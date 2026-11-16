@@ -43,6 +43,7 @@ struct ModeConfig {
     uint8_t  dryerOnMinutes;    // 1-5 min, manual pump-on time
     uint16_t dryerOffHours;     // 1-3 hr, manual rest time
     uint8_t  dryerTargetRH;     // 15-30%, auto From-Engine target
+    bool     allowAutoRecharge; // Allow automatic recharge on saturation stop
 };
 
 class StateMachine {
@@ -67,6 +68,8 @@ public:
     bool pumpOn() const { return _pumpOn; }
     bool heaterOn() const { return _heaterOn; }
     bool fanOn() const { return _fanOn; }
+    bool valveOpen() const { return _valveEnergized; }
+    bool autoRechargeAllowed() const { return config.allowAutoRecharge; }
     float chipTempC() const { return _chipTempC; }
 
     /* Phase line for the main screen. Valid until the next call. */
@@ -80,8 +83,8 @@ public:
 
 private:
     enum class ManualPhase { ON, OFF };
-    enum class AutoPhase { DRYING, WAITING, SAMPLE_RUN, SAMPLE_SETTLE };
-    enum class RechargePhase { HEATING, PULSE_ON, PULSE_WAIT };
+    enum class AutoPhase { DRYING, COOLDOWN, QUICK_SAMPLE, WAITING, SAMPLE_RUN, SAMPLE_SETTLE };
+    enum class RechargePhase { HEATING, PULSE_ON, PULSE_WAIT, COOLDOWN, SAFETY_PULSE, SAFETY_WAIT };
 
     SystemMode _mode;
     Command _pendingCmd;
@@ -105,6 +108,13 @@ private:
     bool _appliedFan;
     bool _chipHot;
     float _chipTempC;
+    bool _valveEnergized;
+    bool _appliedValve;
+    bool _rechargeTriggeredByCycle; // true if recharge was triggered by saturation during dryer/auto
+    uint8_t _autoQuickCycles;       // Count of 10-min quick cycles attempted
+    uint8_t _safetyCheckCount;      // Safety check pulses completed (0, 1, 2)
+    uint32_t _rechargeStartEpoch;   // Epoch when recharge started, for logging
+    uint32_t _rechargeEndEpoch;     // Epoch when recharge ended, for logging
     bool _purgeSeen;
     bool _purgeQualified;
     bool _thermalLatched;
@@ -131,6 +141,7 @@ private:
     void setManualPhase(ManualPhase phase);
     void setAutoPhase(AutoPhase phase);
     void setRechargePhase(RechargePhase phase);
+    void setValve(bool on);
     uint32_t phaseElapsed() const;
     uint32_t phaseRemaining(uint32_t totalMs) const;
 };

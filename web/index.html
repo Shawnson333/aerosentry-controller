@@ -41,6 +41,7 @@
         <dt>Chamber</dt><dd id="chamber">—</dd>
         <dt>Chip</dt><dd id="chip">—</dd>
         <dt>Outputs</dt><dd id="outputs">—</dd>
+        <dt>Valve</dt><dd id="valve">—</dd>
         <dt>Last reply</dt><dd id="reply">—</dd>
       </dl>
     </div>
@@ -60,6 +61,10 @@
     <label>Auto target, From-Engine %
       <select id="target"><option>15</option><option selected>20</option><option>25</option><option>30</option></select>
     </label>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px">
+      <input type="checkbox" id="autoRechargeCheck">
+      <span style="color:var(--muted)">Allow Auto Recharge Cycles</span>
+    </label>
   </main>
   <script>
     const banner = document.getElementById("banner");
@@ -74,6 +79,9 @@
       showValue("from", s.fromValid, s.fromRh, "%");
       showValue("chamber", s.chamberValid, s.chamberF, " F");
       document.getElementById("chip").textContent = s.chipC == null ? "—" : s.chipC + " C";
+      const valve = document.getElementById("valve");
+      valve.textContent = s.valve ? "Open loop (vent outside)" : "Closed loop (engine)";
+      valve.className = s.valve ? "bad" : "";
       const relay = s.relays ? "relay board ready" : "relay board not connected";
       document.getElementById("outputs").textContent =
         "Pump " + (s.pump ? "on" : "off") + ", heater " + (s.heat ? "on" : "off") +
@@ -81,11 +89,12 @@
       const reply = document.getElementById("reply");
       reply.textContent = s.lastReply || "—";
       reply.className = s.accepted === true ? "ok" : s.accepted === false ? "bad" : "";
+      document.getElementById("autoRechargeCheck").checked = !!s.autoRecharge;
       buttons.forEach(button => button.disabled = !s.connected);
       if (!s.connected) {
         banner.textContent = "Bridge is open, but the Heltec radio is not reporting yet.";
       } else if (!s.relays) {
-        banner.textContent = "Live link. Humidity stays offline until the XIAO is in range. Starts are refused while the relay board is at home.";
+        banner.textContent = "Live link. Humidity stays offline until the sensor node is in range. Starts are refused while the relay board is at home.";
       } else {
         banner.textContent = "Live link to the controller.";
       }
@@ -100,7 +109,7 @@
         buttons.forEach(button => button.disabled = true);
       }
     }
-    buttons.forEach(button => button.addEventListener("click", async () => {
+      buttons.forEach(button => button.addEventListener("click", async () => {
       buttons.forEach(item => item.disabled = true);
       const response = await fetch("/api/command", {
         method: "POST",
@@ -109,7 +118,8 @@
           command: button.dataset.command,
           dryerOnMinutes: Number(document.getElementById("onMin").value),
           dryerOffHours: Number(document.getElementById("offHr").value),
-          dryerTargetRH: Number(document.getElementById("target").value)
+          dryerTargetRH: Number(document.getElementById("target").value),
+          autoRecharge: document.getElementById("autoRechargeCheck").checked
         })
       });
       const ack = await response.json();
