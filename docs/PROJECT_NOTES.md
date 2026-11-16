@@ -39,14 +39,16 @@ To-Engine SHT40, top connector:
 | 3V3 | VCC |
 | GND | GND |
 
-From-Engine SHT40, header J2:
+From-Engine SHT40, same top connector:
 
 | Heltec pin | Probe wire |
 | --- | --- |
-| GPIO 33 | SDA |
-| GPIO 26 | SCL |
+| GPIO 15 | SDA |
+| GPIO 16 | SCL |
 | 3V3 | VCC |
 | GND | GND |
+
+The top connector has no power pins. Both probes still take 3V3 and GND from the side header. GPIO 26 and 33 are no longer used.
 
 Chamber thermistor, header J3:
 
