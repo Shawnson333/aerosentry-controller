@@ -114,15 +114,23 @@ void uiUpdateAdmin() {
     const float chip = stateMachine.chipTempC();
     if (chip == chip) snprintf(chipText, sizeof(chipText), "%.0fC", chip);
 
-    char body[480];
+    char pressure[32] = "--";
+    if (sensors.pressureValid) {
+        snprintf(pressure, sizeof(pressure), "%ld raw", (long)sensors.ventPressureRaw);
+    } else {
+        snprintf(pressure, sizeof(pressure), "no sensor");
+    }
+
+    char body[560];
     snprintf(body, sizeof(body),
              "To-Engine   %s   %s\n"
              "From-Engine %s   %s\n"
              "Chamber     %s\n"
              "Chip        %s\n"
              "Relays      %s\n"
+             "Vent press  %s\n"
              "Last purge  %s\n"
-             "K1 unused. K2 pump, K3 heater, K4 fan, K5 AUX.",
-             toRh, toF, fromRh, fromF, chamber, chipText, relays, purge);
+             "K1 unused. K2 pump, K3 heater, K4 fan, K5/K6 valves.",
+             toRh, toF, fromRh, fromF, chamber, chipText, relays, pressure, purge);
     lv_label_set_text(adminBody, body);
 }

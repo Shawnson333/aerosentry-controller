@@ -118,6 +118,12 @@ private:
     bool _rechargeFailure;          // true while running the failure cool down
     StopReason _rechargeFailureReason;
     bool _chamberReachedTarget;     // Arms the valve verification after real heat-up
+    int32_t _ventBaseline;          // Idle vent pressure, learned while the pump is off
+    bool _ventBaselineValid;
+    uint32_t _ventLearnStartMs;
+    uint8_t _ventGoodPulses;        // Pulses that showed the expected pressure step
+    uint8_t _ventBadPulses;         // Pulses that showed no step
+    uint8_t _pulseCount;            // Recharge pulses completed, used for the first-pulse flush
     float _valveBaselineRH;         // From-Engine baseline, set after the flush pulse
     uint8_t _valvePulseCount;       // End-of-pulse samples judged since recharge started
     uint8_t _valveHighCount;        // Consecutive From-Engine samples above baseline
@@ -158,6 +164,8 @@ private:
     void rechargeFailureCooldown(StopReason reason);
     bool evaluateValveVerification();
     void checkValveCurrent();
+    bool evaluateVentPressure();
+    void learnVentBaseline();
     uint32_t phaseElapsed() const;
     uint32_t phaseRemaining(uint32_t totalMs) const;
 };

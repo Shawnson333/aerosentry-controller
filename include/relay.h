@@ -28,8 +28,10 @@ public:
     void heaterOff();
     void fanOn();
     void fanOff();
-    void auxOn();
-    void auxOff();
+    void valveToOn();
+    void valveToOff();
+    void valveFromOn();
+    void valveFromOff();
 
     /* Emergency stop: turn everything OFF */
     void allOff();

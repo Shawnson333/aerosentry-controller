@@ -61,8 +61,10 @@ void RelayDriver::heaterOn()  { setChannel(RELAY_BIT_HEATER, true); }
 void RelayDriver::heaterOff() { setChannel(RELAY_BIT_HEATER, false); }
 void RelayDriver::fanOn()     { setChannel(RELAY_BIT_FAN,    true); }
 void RelayDriver::fanOff()    { setChannel(RELAY_BIT_FAN,    false); }
-void RelayDriver::auxOn()     { setChannel(RELAY_BIT_AUX,    true); }
-void RelayDriver::auxOff()    { setChannel(RELAY_BIT_AUX,    false); }
+void RelayDriver::valveToOn()   { setChannel(RELAY_BIT_VALVE_TO, true); }
+void RelayDriver::valveToOff()  { setChannel(RELAY_BIT_VALVE_TO, false); }
+void RelayDriver::valveFromOn() { setChannel(RELAY_BIT_VALVE_FROM, true); }
+void RelayDriver::valveFromOff(){ setChannel(RELAY_BIT_VALVE_FROM, false); }
 
 void RelayDriver::allOff() {
     if (!_initialized) return;

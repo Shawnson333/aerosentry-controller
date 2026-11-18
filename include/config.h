@@ -33,20 +33,22 @@
       bit 2 / K3 = Heater mat
       bit 3 / K4 = Case fan. On while the pump runs, for all of recharge,
                    and while the Waveshare chip is hot.
-      bit 4 / K5 = AUX, named but not driven by any mode
-      bit 5 / K6 = Recharge valve. Energized = open loop (isolate engine,
-                 vent to outside). De-energized = closed loop (engine
-                 connected). Normally closed valve: power loss = closed loop.
-      bits 0, 6, 7 = K1 and K7-K8, never energized
+      bit 4 / K5 = To-Engine valve. Energized = dump the regen exhaust to
+               atmosphere (the vent line the pressure sensor watches).
+      bit 5 / K6 = From-Engine valve. Energized = pull fresh ambient air into
+               the chamber for recharge, so no engine air is drawn in.
+      bit 6 / K7 = AUX, future engine heater
+      bit 7 / K8 = AUX, future user accessory
+      bit 0 / K1 = unused, never energized
 */
 #define RELAY_BIT_PUMP      1
 #define RELAY_BIT_HEATER    2
 #define RELAY_BIT_FAN       3
-#define RELAY_BIT_AUX       4
-#define RELAY_BIT_VALVE     5
+#define RELAY_BIT_VALVE_TO  4
+#define RELAY_BIT_VALVE_FROM 5
 #define RELAY_ALLOWED_MASK  ((1 << RELAY_BIT_PUMP) | (1 << RELAY_BIT_HEATER) | \
-                             (1 << RELAY_BIT_FAN) | (1 << RELAY_BIT_AUX) | \
-                             (1 << RELAY_BIT_VALVE))
+                             (1 << RELAY_BIT_FAN) | (1 << RELAY_BIT_VALVE_TO) | \
+                             (1 << RELAY_BIT_VALVE_FROM))
 
 /* --- Safety / cycle timing (best guesses; tune after testing) --- */
 #define SAT_LIMIT_RH            40.0f   // To-Engine RH hard-stop (%). Not used in Recharge.
@@ -69,8 +71,6 @@
 #define RECHARGE_MAX_MS         10800000UL // Recharge max 3 hours
 #define RECHARGE_TARGET_RH      15.0f      // To-Engine RH that counts as a good cycle
 #define RECHARGE_GOOD_CYCLES    3          // Consecutive good samples required
-#define RECHARGE_TARGET_TEMP_F  240        // Chamber target, Fahrenheit
-#define RECHARGE_TEMP_HYSTERESIS_F 5       // Heater back on this far below target
 #define RECHARGE_PULSE_ON_MS    10000UL    // Recharge pump on time
 #define RECHARGE_FIRST_PULSE_MS 10000UL    // First pulse also flushes the soaked probes
 #define RECHARGE_PULSE_WAIT_MS  60000UL    // Recharge wait between pulses
@@ -79,25 +79,53 @@
 #define SAFETY_SAMPLE_INTERVAL_MS 60000UL  // Safety check sample delay 1 min
 #define SAFETY_SAMPLE_COUNT     2          // Safety check runs twice
 
-/* Valve verification. Runs only on end-of-pulse samples, and only after the
-   chamber has reached 240F. During pump-off periods the chamber fills with
-   moisture driven off the hot desiccant and BOTH probes climb, so pump-off
-   readings say nothing about valve position. The first pulse is a flush only:
-   the From-Engine probe sits in the intake path and needs a few seconds under
-   flow to burn off the moisture it soaked up while the pump was off.
-   Set VALVE_LEAK_CHECK_ENABLED to 0 for bench testing without a heater. */
-#define VALVE_LEAK_CHECK_ENABLED     1
-#define VALVE_VERIFY_BASELINE_PULSES 2      // Pulses 2-3 set the From-Engine baseline
-#define VALVE_VERIFY_RISE_RH         10.0f  // From-Engine above baseline = exhaust entering engine
-#define VALVE_VERIFY_CONSECUTIVE     2      // Consecutive high samples to alarm
+/* Bench test mode. Caps the chamber at 120F instead of 240F so the first
+   all-up run cannot cook anything. The heater still cycles: on at 120F,
+   off at 110F, back on at 120F. Everything else about recharge is unchanged.
+   Set to 0 for production. */
+#define RECHARGE_TEST_MODE       1
+#if RECHARGE_TEST_MODE
+#define RECHARGE_TARGET_TEMP_F      120
+#define RECHARGE_TEMP_HYSTERESIS_F  10
+#else
+#define RECHARGE_TARGET_TEMP_F      240
+#define RECHARGE_TEMP_HYSTERESIS_F  5
+#endif
+
+/* Valve position verification by humidity trend is retired. The vent pressure
+   check is a direct mechanical measurement and does not depend on ambient
+   humidity, which made the old comparison unreliable in humid air and in a
+   humid engine. The trend code is kept in statemachine.cpp for reference but
+   is not compiled in. */
+#define VALVE_TREND_CHECK_ENABLED 0
 
 /* Valve coil current sense. The sensor node reads a 1-ohm shunt in the valve
    12 V return on GPIO 3. The 4 W coil draws about 0.33 A, so the node reports
-   about 330 mV while the valve is energized and near 0 mV when it is off. */
+   about 330 mV while the valve is energized and near 0 mV when it is off.
+   DISABLED for the first all-up bench test because the shunt is not wired
+   yet. Set to 1 once the shunt and the common ground are in place. */
+#define VALVE_CURRENT_CHECK_ENABLED 0
 #define VALVE_CURRENT_MIN_MV       150    // Below this while commanded on = fault
 #define VALVE_CURRENT_GRACE_MS     3000   // Ignore readings just after energizing
 #define VALVE_CURRENT_CHECK_MS     1000   // Cadence of the current check
 #define VALVE_CURRENT_FAULT_COUNT  3      // Consecutive low readings to alarm
+
+/* The old From-Engine climb ladder is retired in favour of the vent pressure
+   check. The code is kept but not compiled in. */
+#define VALVE_TREND_CHECK_ENABLED 0
+
+/* Vent pressure check. The sensor node reads a one-port gauge pressure module
+   on the dump line, upstream of the vent. When the pump runs with the dump
+   valve open, the vent line must show a pressure step. No step means the
+   valve did not open, so the regen exhaust is not leaving the system.
+   The raw reading is logged every packet so the curve can be studied. The
+   threshold below is a first guess until the first all-up run supplies real
+   numbers. */
+#define VENT_PRESSURE_CHECK_ENABLED  1
+#define VENT_PRESSURE_MIN_STEP      8     // Raw counts above the idle baseline
+#define VENT_PRESSURE_IDLE_BASELINE  0     // Baseline learned while the pump is off
+#define VENT_PRESSURE_SAMPLES       6     // Pulses required before alarming
+#define VENT_PRESSURE_LEARN_MS      30000UL // Baseline learning window at start
 #define LOG_INTERVAL_MS         30000UL    // Log every sensor while a cycle runs
 #define PURGE_RECENT_MS         3600000UL  // Dryer warns if no qualified purge in this window
 #define PURGE_QUALIFY_MS        60000UL    // Pump must run this long before a purge counts

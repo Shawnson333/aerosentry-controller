@@ -7,11 +7,15 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <math.h>
+#include <HX711.h>
 #include "config.h"
 #include "sensor_packet.h"
 
 static TwoWire toBus = TwoWire(0);
 static TwoWire fromBus = TwoWire(1);
+static HX711 pressureScale;
+static bool pressureReady = false;
+static int32_t pressureRaw = 0;
 static uint32_t sequenceNumber = 0;
 static bool radioReady = false;
 static int chamberMillivolts = -1;
@@ -122,6 +126,24 @@ static void readValveCurrent() {
     valveMillivolts = (int)(total / (sampleCount - 2));
 }
 
+/* Vent pressure. The module reports a differential count that grows when the
+   line is pressurised. The absolute number depends on the module and the
+   plumbing, so the Waveshare learns its own baseline and judges the step.
+   A failed read is reported as not-valid rather than as a zero.
+   The HX711 API: begin() returns void, read() blocks until data is ready and
+   returns the raw count. */
+static bool readPressure(int32_t &raw) {
+    if (!pressureReady) return false;
+    if (!pressureScale.is_ready()) {
+        pressureScale.begin(PRESSURE_DOUT_PIN, PRESSURE_SCK_PIN);
+        pressureReady = pressureScale.is_ready();
+        if (!pressureReady) return false;
+    }
+    const long value = pressureScale.read();
+    raw = (int32_t)value;
+    return true;
+}
+
 
 static bool radioBegin() {
     WiFi.mode(WIFI_STA);
@@ -152,6 +174,12 @@ void setup() {
     analogSetPinAttenuation(THERMISTOR_ADC_PIN, ADC_11db);
     pinMode(VALVE_SHUNT_ADC_PIN, INPUT);
     analogSetPinAttenuation(VALVE_SHUNT_ADC_PIN, ADC_11db);
+
+    pressureScale.begin(PRESSURE_DOUT_PIN, PRESSURE_SCK_PIN);
+    pressureReady = pressureScale.is_ready();
+    Serial.printf("Vent pressure DOUT %d SCK %d %s\n",
+                  PRESSURE_DOUT_PIN, PRESSURE_SCK_PIN,
+                  pressureReady ? "ready" : "NOT READY");
 
     radioReady = radioBegin();
     Serial.printf("Channel %d  MAC %s  %s\n",
@@ -193,17 +221,27 @@ void loop() {
     }
     packet.valveAdcMillivolts = (uint16_t)(valveMillivolts > 0 ? valveMillivolts : 0);
 
+    int32_t raw = 0;
+    if (readPressure(raw)) {
+        packet.flags |= SENSOR_FLAG_PRESSURE_VALID;
+        packet.ventPressureRaw = raw;
+        pressureRaw = raw;
+    } else {
+        packet.ventPressureRaw = 0;
+    }
+
     bool sent = false;
     if (radioReady) {
         const uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
         sent = esp_now_send(broadcast, (uint8_t *)&packet, sizeof(packet)) == ESP_OK;
     }
-    Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d valveMv %d stable %u faults %u sent %d\n",
+    Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d valveMv %d pressRaw %ld stable %u faults %u sent %d\n",
                   (unsigned long)millis(), (unsigned long)packet.sequence, packet.flags,
                   (packet.flags & SENSOR_FLAG_TO_VALID) ? toHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_FROM_VALID) ? fromHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_CHAMBER_VALID) ? tempC : -1.0f,
                   chamberMillivolts, chamberSpread, valveMillivolts,
+                  (long)pressureRaw,
                   chamberStable, chamberFaults, sent ? 1 : 0);
     delay(SEND_INTERVAL_MS);
 }

@@ -62,6 +62,11 @@ StateMachine::StateMachine()
     , _rechargeFailure(false)
     , _rechargeFailureReason(StopReason::NONE)
     , _chamberReachedTarget(false)
+    , _ventBaseline(0)
+    , _ventBaselineValid(false)
+    , _ventLearnStartMs(0)
+    , _ventGoodPulses(0)
+    , _ventBadPulses(0)
     , _valveBaselineRH(-1.0f)
     , _valvePulseCount(0)
     , _valveHighCount(0)
@@ -105,6 +110,12 @@ void StateMachine::begin() {
     _rechargeFailure = false;
     _rechargeFailureReason = StopReason::NONE;
     _chamberReachedTarget = false;
+    _ventBaseline = 0;
+    _ventBaselineValid = false;
+    _ventLearnStartMs = 0;
+    _ventGoodPulses = 0;
+    _ventBadPulses = 0;
+    _pulseCount = 0;
     _valveBaselineRH = -1.0f;
     _valvePulseCount = 0;
     _valveHighCount = 0;
@@ -153,6 +164,7 @@ bool StateMachine::handleCommand() {
 
 void StateMachine::update() {
     checkThermal();
+    learnVentBaseline();
     if (handleCommand()) {
         updateFan();
         applyOutputs();
@@ -269,6 +281,12 @@ void StateMachine::enterMode(SystemMode newMode) {
             _rechargeFailure = false;
             _rechargeFailureReason = StopReason::NONE;
             _chamberReachedTarget = false;
+            _ventBaseline = 0;
+            _ventBaselineValid = false;
+            _ventLearnStartMs = 0;
+            _ventGoodPulses = 0;
+            _ventBadPulses = 0;
+            _pulseCount = 0;
             _valveBaselineRH = -1.0f;
             _valvePulseCount = 0;
             _valveHighCount = 0;
@@ -457,7 +475,7 @@ void StateMachine::updateRecharge() {
             break;
         case RechargePhase::PULSE_ON: {
             _pumpOn = true;
-            const uint32_t pulseMs = (_valvePulseCount == 0)
+            const uint32_t pulseMs = (_pulseCount == 0)
                                          ? RECHARGE_FIRST_PULSE_MS
                                          : RECHARGE_PULSE_ON_MS;
             if (phaseElapsed() < pulseMs || !toEngineSampleReady()) break;
@@ -468,6 +486,8 @@ void StateMachine::updateRecharge() {
                 return;
             }
             if (!evaluateValveVerification()) return;
+            if (!evaluateVentPressure()) return;
+            if (_pulseCount < 255) _pulseCount++;
             if (sensors.toEngineRH <= RECHARGE_TARGET_RH) {
                 if (_rechargeGoodCycles < 255) _rechargeGoodCycles++;
             } else {
@@ -619,8 +639,13 @@ void StateMachine::regulateHeater() {
 }
 
 void StateMachine::setValve(bool on) {
-    if (on) relay.setChannel(RELAY_BIT_VALVE, true);
-    else relay.setChannel(RELAY_BIT_VALVE, false);
+    if (on) {
+        relay.valveToOn();
+        relay.valveFromOn();
+    } else {
+        relay.valveToOff();
+        relay.valveFromOff();
+    }
 }
 
 /* On any recharge failure, keep venting outside and cool the chamber for the
@@ -640,27 +665,105 @@ void StateMachine::rechargeFailureCooldown(StopReason reason) {
    baseline (lowest reading wins). After that, consecutive samples at or above
    baseline + threshold mean regen exhaust is entering the engine. */
 bool StateMachine::evaluateValveVerification() {
-#if VALVE_LEAK_CHECK_ENABLED
+#if VALVE_TREND_CHECK_ENABLED
+    /* Retired humidity-trend check. Kept for reference only. The vent
+       pressure check replaced it. These constants are local so the block
+       still compiles if it is ever switched back on. */
+    const uint8_t baselinePulses = 2;
+    const float riseRH = 10.0f;
+    const uint8_t consecutive = 2;
+
     _valvePulseCount++;
     const float fromRH = sensors.fromEngineRH;
     if (_valvePulseCount == 1) {
         Serial.println(F("Valve verify: flush pulse, From-Engine not judged"));
         return true;
     }
-    if (_valvePulseCount <= (uint8_t)(1 + VALVE_VERIFY_BASELINE_PULSES)) {
+    if (_valvePulseCount <= (uint8_t)(1 + baselinePulses)) {
         if (_valveBaselineRH < 0.0f || fromRH < _valveBaselineRH) {
             _valveBaselineRH = fromRH;
         }
         Serial.printf("Valve verify: baseline %.1f%%\n", _valveBaselineRH);
         return true;
     }
-    if (fromRH >= _valveBaselineRH + VALVE_VERIFY_RISE_RH) {
+    if (fromRH >= _valveBaselineRH + riseRH) {
         if (_valveHighCount < 255) _valveHighCount++;
     } else {
         _valveHighCount = 0;
     }
-    if (_valveHighCount >= VALVE_VERIFY_CONSECUTIVE) {
+    if (_valveHighCount >= consecutive) {
         Serial.println(F("Valve verify: From-Engine climbing - exhaust entering engine"));
+        stopWith(StopReason::VALVE_SUSPECT);
+        return false;
+    }
+#endif
+    return true;
+}
+
+/* Learn the idle vent pressure while the pump is not running. The baseline
+   must come from a pump-off reading, because a reading taken at the end of a
+   pulse is already pressurised and would make every later pulse look like
+   "no flow". Called every loop while the vent line is quiet. */
+void StateMachine::learnVentBaseline() {
+#if VENT_PRESSURE_CHECK_ENABLED
+    if (_ventBaselineValid) return;
+    if (_pumpOn) return;                 // Never learn from a pressurised line.
+    if (!sensors.pressureValid) return;
+    if (_ventLearnStartMs == 0) {
+        _ventLearnStartMs = millis();
+        _ventBaseline = sensors.ventPressureRaw;
+        return;
+    }
+    if (millis() - _ventLearnStartMs < VENT_PRESSURE_LEARN_MS) {
+        /* Keep the lowest quiet reading as the baseline. */
+        if (sensors.ventPressureRaw < _ventBaseline) {
+            _ventBaseline = sensors.ventPressureRaw;
+        }
+        return;
+    }
+    _ventBaselineValid = true;
+    Serial.printf("Vent baseline learned: %ld raw\n", (long)_ventBaseline);
+#endif
+}
+
+/* Vent pressure verification. The pump draws air through the chamber and the
+   dump valve sends the regen exhaust out the vent line. With the valve open
+   the vent line must show a pressure step against the idle baseline. No step
+   means the dump valve did not open, so the exhaust is not leaving the
+   system. This is a positive check on the mechanical valve position and does
+   not depend on humidity at all.
+
+   The baseline is learned while the pump is off at the start of recharge.
+   Each end-of-pulse sample is compared against it. A few bad pulses are
+   tolerated so a single noisy reading does not stop the cycle, but a run of
+   bad pulses means the valve is not venting. */
+bool StateMachine::evaluateVentPressure() {
+#if VENT_PRESSURE_CHECK_ENABLED
+    if (!sensors.pressureValid) {
+        /* No pressure data. Do not block the cycle; the coil current check
+           and the operator are the backups. */
+        return true;
+    }
+    if (!_ventBaselineValid) {
+        /* Baseline not learned yet. Do not judge a pulse before the idle
+           level is known. */
+        return true;
+    }
+    const int32_t raw = sensors.ventPressureRaw;
+    const int32_t step = raw - _ventBaseline;
+    const bool sawStep = step >= VENT_PRESSURE_MIN_STEP;
+    if (sawStep) {
+        _ventGoodPulses++;
+        _ventBadPulses = 0;
+    } else {
+        _ventBadPulses++;
+    }
+    Serial.printf("Vent pressure raw %ld step %ld %s good %u bad %u\n",
+                  (long)raw, (long)step, sawStep ? "OK" : "NO FLOW",
+                  _ventGoodPulses, _ventBadPulses);
+
+    if (_ventBadPulses >= VENT_PRESSURE_SAMPLES && _ventGoodPulses == 0) {
+        Serial.println(F("Vent pressure fault - dump valve did not open"));
         stopWith(StopReason::VALVE_SUSPECT);
         return false;
     }
@@ -674,7 +777,7 @@ bool StateMachine::evaluateValveVerification() {
    return wire shows up within a few seconds. Skipped when the sensor node is
    offline - the SENSOR_LOST path handles that case. */
 void StateMachine::checkValveCurrent() {
-#if VALVE_LEAK_CHECK_ENABLED
+#if VALVE_CURRENT_CHECK_ENABLED
     if (!_valveEnergized) {
         _valveNoCurrentCount = 0;
         return;
@@ -766,10 +869,9 @@ void StateMachine::applyOutputs() {
         Serial.println(_fanOn ? F("Case fan ON") : F("Case fan OFF"));
     }
     if (_valveEnergized != _appliedValve) {
-        if (_valveEnergized) relay.setChannel(RELAY_BIT_VALVE, true);
-        else relay.setChannel(RELAY_BIT_VALVE, false);
+        setValve(_valveEnergized);
         _appliedValve = _valveEnergized;
-        Serial.println(_valveEnergized ? F("Valve OPEN loop") : F("Valve CLOSED loop"));
+        Serial.println(_valveEnergized ? F("Valves OPEN loop") : F("Valves CLOSED loop"));
     }
 }
 

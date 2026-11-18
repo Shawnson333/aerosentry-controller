@@ -27,6 +27,14 @@
    this board's ground. A flyback diode belongs across the valve coil. */
 #define VALVE_SHUNT_ADC_PIN 3
 
+/* Vent pressure module. One-port gauge sensor on the dump line, upstream of
+   the vent, reached through a 2.5 mm tube off a 1/4 in tee. It is NOT an I2C
+   device: it is an HX711 load-cell ADC behind a pressure die, so it needs two
+   plain GPIOs. GPIO 47 and 48 are physically adjacent on header J2.
+   DOUT reads the data line, SCK the clock. */
+#define PRESSURE_DOUT_PIN 48
+#define PRESSURE_SCK_PIN  47
+
 #define SEND_INTERVAL_MS    1000UL
 
 #endif

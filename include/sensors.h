@@ -16,6 +16,8 @@ struct SensorReading {
     float fromEngineTemp;    // Celsius
     float chamberTemp;       // Celsius, thermistor on the sensor node
     int valveAdcMillivolts;  // 1-ohm shunt in the valve 12 V return, from the sensor node
+    int32_t ventPressureRaw; // raw counts from the vent pressure module
+    bool pressureValid;      // true when the pressure module reported a good reading
     uint32_t timestamp;        // millis() when the last packet arrived
     uint32_t chamberTimestamp; // millis() when the last valid chamber sample arrived
     bool toValid;
