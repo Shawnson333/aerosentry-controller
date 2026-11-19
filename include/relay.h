@@ -6,8 +6,10 @@
 
 /* ========================================================================
    RELAY DRIVER — XL9535 8-channel I2C expander
-   K2 pump, K3 heater, K4 case fan. K5 AUX is reserved and stays off.
-   K1 and K6-K8 are masked off in the driver.
+   K2 pump, K3 heater, K4 case fan, K5/K6 the two recharge valves.
+   K1, K7, K8 are aux outputs and are enabled in the driver mask, but no
+   cycle drives them. The bench relay board has a faulty K1 channel, so
+   leave bit 0 alone until the custom carrier board replaces that board.
    ======================================================================== */
 
 class RelayDriver {
@@ -32,6 +34,16 @@ public:
     void valveToOff();
     void valveFromOn();
     void valveFromOff();
+
+    /* Aux outputs. Not driven by any cycle - manual or future use.
+       K1 is a switched 12 V output. K7 and K8 are 120 V AC outputs, so
+       treat those two as mains switching. */
+    void aux12vOn();
+    void aux12vOff();
+    void auxAc1On();
+    void auxAc1Off();
+    void auxAc2On();
+    void auxAc2Off();
 
     /* Emergency stop: turn everything OFF */
     void allOff();

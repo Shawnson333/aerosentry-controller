@@ -37,7 +37,7 @@ void setup() {
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
     Serial.println(F("I2C bus initialized (GPIO 8/9)"));
 
-    // XL9535 at 0x21. K1 is masked off. Active outputs start off.
+    // XL9535 at 0x21. All eight channels are enabled. Active outputs start off.
     if (relay.begin()) {
         Serial.println(F("Relay driver OK - all relays OFF"));
     } else {

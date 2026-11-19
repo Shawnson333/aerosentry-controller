@@ -1,5 +1,31 @@
 # AeroSentry Project Notes
 
+## Where we are — 2026-11-18, bench test
+
+Mostly successful all-up run. Sensors, radio, display, touch, clock, relays, heater cap, and the recharge state machine all worked. The valves did not. They are the wrong part. Replacement requirements are in the recharge valve section below. Do not tune `VENT_PRESSURE_MIN_STEP` from tonight's counts.
+
+**Known-good firmware is git `35cd9ad`, "Add vent pressure check, two valves, and bench test mode."** Tag `bench-2026-11-18` points at that commit. Both boards are running that tree:
+
+- Waveshare was already on `35cd9ad`. It was not reflashed. Boot line is `XL9535 outputs OFF (K1 unused)`. COM4 during the test.
+- Sensor node was still on the older image at the start, so the controller ignored its packets. Flashed `nodes/heltec-sensor` to COM10 from `35cd9ad`. MAC `F8:5B:1B:BF:3F:EC`. Boot line is `Vent pressure DOUT 48 SCK 47 ready`.
+- Later commits may enable the unused aux relay channels and update these notes. That does not change pump, heater, fan, or valve bits. Do not reflash the Waveshare just to pick that up. The image on the board is the tested one.
+
+What passed, with AC on:
+
+- Packet v3, flags `0x0F`. To-Engine about 27% RH at idle. From-Engine about 14% at idle, higher once recharge moved air. Chamber about 59 F at rest after the 10k was moved to ground. It had been on 3.3 V, which held GPIO 4 at 3119 mV and the firmware rejected it.
+- HX711 on 3.3 V. Module `OUT` is GPIO 48, `SCK` is GPIO 47. Idle raw about 1,199,000. Quiet wander about 560 counts.
+- XL9535 and DS3231M ACK. Display and touch came up. GT911 at 0x5D.
+- Bench recharge cap is 120 F (`RECHARGE_TEST_MODE` 1). The heater reached it and cycled off. Pump stayed off until the pulse, then ran with both valve bits set (`0x3A` = pump + fan + K5 + K6).
+- First recharge learned baseline 1,199,286. End-of-pulse steps were +5,901 and +5,434. A later pulse, after the valve plumbing was reworked, was +19,253. The firmware called them OK against the placeholder gate of 8. That gate is inside the noise. The steps themselves are choked-orifice pressure, not a divert.
+- Valve-current check and the humidity ladder stayed compiled out. The `valveMv` print sat near 280 mV all night, including with the relays off. Ignore it.
+
+What failed:
+
+- USS-PSV00033 clicks and the relay LED lights, and purge (valves at rest) sends the air the right way. Energized, most of the flow still goes to the engine and the dump only gets a wisp. It is a 1/8 inch pneumatic pilot valve, not a diverter. See the replacement spec below.
+- Early purge, manual, and auto starts were stopped immediately. The first relay wiring was wrong and was corrected before the recharge runs. Do not treat those short starts as a program failure.
+
+Next: replacement valves, then one recharge with a real divert, then set the pressure step from that run. The pressure log from tonight is `%TEMP%\aerosentry-pressure-watch.log` on this PC. It is not in the repo.
+
 ## Where we are — 2026-11-11, end of session
 
 Saved locally on `main` at `86a51b5` ("Serve the remote page on the Tailscale address."). Not pushed. `main` is ahead of `origin/main`. Working tree was clean before this note.
@@ -71,7 +97,7 @@ Do not use GPIO 2, 5, or 7. Those are the power amplifier. Do not use GPIO 8 thr
 Bench-confirmed and in the saved firmware:
 
 - Waveshare ESP32-S3 4.3-inch Type B, 800x480. Touch, main controls, clock screen, and the navy AeroSentry splash work. The upload port used so far is COM4.
-- XL9535 at 0x21, active-high, two data bytes (port 0 then port 1). K1 is unused. K2 pump, K3 heater, and K4 case fan are the confirmed outputs. K5 AUX stays off. K6-K8 stay reserved.
+- XL9535 at 0x21, active-high, two data bytes (port 0 then port 1). K2 pump, K3 heater, and K4 case fan are the confirmed outputs. K5 is the To-Engine valve and K6 the From-Engine valve, both energized together during recharge. K1, K7 and K8 are aux outputs and are enabled in the driver mask, but no cycle drives them. The bench relay board has a faulty K1 channel, so leave bit 0 alone until the custom carrier board replaces it.
 - XIAO ESP32-C3 on ESP-NOW channel 1, MAC `AC:27:6E:FC:EF:A8`. Known-good image: `firmware/xiao-sensor-known-good.bin`. To-Engine is D4/D5, From-Engine is D8/D9, both at `0x44`. The chamber 10k divider is installed and `CHAMBER_DIVIDER_INSTALLED` is 1. Spread reject is 150 mV. A dual-port capture showed packets about once a second with no missing sequence numbers.
 - Cycle rules below are implemented: 40% To-Engine stop, 60-second purge qualification, purge reminder, 260F / 250F thermal stops, and admin (ten title taps). The recharge chamber retry window is in the same firmware, but it is not yet a finished heater-mat proof. See the next list.
 
@@ -239,13 +265,23 @@ Both need authentication. A Wi-Fi path that can energize the pump and heater mus
 
 ## Recharge valve logic — revised 2026-11-15, two valves
 
-Two US Solid 3-way normally-closed 12V valves (PN-USS-PSV00033, 4 W coil). **K5 (P0.4) = To-Engine valve**, energized dumps the regen exhaust to atmosphere (the vent line the pressure sensor watches). **K6 (P0.5) = From-Engine valve**, energized pulls fresh ambient air into the chamber for recharge, so no engine air is drawn in. Both are energized together for recharge and both are de-energized otherwise. K7 and K8 are reserved aux (future engine heater, future user accessory) and are masked off. K1 is unused.
+**K5 (P0.4) = To-Engine valve**, energized dumps the regen exhaust to atmosphere (the vent line the pressure sensor watches). **K6 (P0.5) = From-Engine valve**, energized pulls fresh ambient air into the chamber for recharge, so no engine air is drawn in. Both are energized together for recharge and both are de-energized otherwise. K7 and K8 are reserved aux (future engine heater, future user accessory) and are masked off. K1 is unused.
+
+**USS-PSV00033 is the wrong valve. Do not buy it again.** Bench test 2026-11-18: the coils clicked and the relay LEDs lit, and purge (valves at rest) sent the air the right way. Energized, the To-Engine valve only passed a wisp to the dump and most of the pump flow still went to the engine. The part is a 1/8 inch 3-way pneumatic pilot valve. Two of its threaded ports are the same outlet, and the real exhaust is a top diffuser, not a third plumbed port. The vent sensor rose anyway (+5,500 counts, then +19,253) because it sits upstream of that pinhole. Those steps are choked-orifice pressure, not a diversion. Do not tune `VENT_PRESSURE_MIN_STEP` from them.
+
+Replacement, two of the same valve:
+
+- 3-way, 2-position, spring-return normally closed. Power loss must put the engine loop back. No latching valve, no motorized ball that stays where it was.
+- Direct acting, zero minimum pressure. A pilot valve that needs 20 PSI will not shift on this pump, and it will not seal on the suction side at all.
+- Three real ports of one passage: common, engine port, divert port. Reject any valve whose "third port" is a muffler, or whose two side ports are the same gallery.
+- Port and orifice at least the air-hose inside diameter. If the hose is 1/4 inch, that means 1/4 inch NPT and an orifice of 4 mm or larger, stated on the datasheet before purchase. Another 1/8 inch body repeats tonight.
+- 12 V DC coil, under 1 A, with the flyback diode across the coil, stripe to +12 V. The bench relay contacts are only rated 3 A inductive.
 
 Because recharge pulls fresh ambient air rather than engine air, the From-Engine probe is no longer the valve sentinel and the humidity-based position check was dropped as too sensitive to ambient conditions.
 
 Recharge flow: heat to target, pulse until three good To-Engine samples, then **cool down** — 1 hour, heater off, pump running, still venting — then a **safety check**: two rounds of 10-second pulse plus 1-minute sample. Both samples at or below 15% closes the valves and completes. A sample above 15% fails safe: error, idle.
 
-**Vent pressure check (new).** A one-port gauge pressure module sits on the dump line upstream of the vent, reached through a 2.5 mm tube off a 1/4 in tee with a 1/4-to-2.5 mm barb reducer. It is not an I2C device: it is an HX711 load-cell ADC behind a pressure die, so it needs two plain GPIOs — **GPIO 47 (DOUT) and GPIO 48 (SCK)**, physically adjacent on header J2. The library is `bogde/HX711`. The sensor node reads it and reports `ventPressureRaw` in the packet (version 3). The Waveshare learns an idle baseline **while the pump is off** (lowest quiet reading over 30 s), then each end-of-pulse sample is compared against it. A step of at least `VENT_PRESSURE_MIN_STEP` counts as flow. Six bad pulses with no good pulse at all is a valve fault: pump off, error, idle. This is a positive check on the mechanical valve position and does not depend on humidity at all. The raw value is logged every packet and shown on the admin screen.
+**Vent pressure check (new).** A one-port gauge pressure module sits on the dump line upstream of the vent, reached through a 2.5 mm tube off a 1/4 in tee with a 1/4-to-2.5 mm barb reducer. It is not an I2C device: it is an HX711 load-cell ADC behind a pressure die, so it needs two plain GPIOs — **GPIO 48 (DOUT / the module's OUT pin) and GPIO 47 (SCK)**, physically adjacent on header J2. An older sentence in this paragraph had those two swapped; the firmware in `nodes/heltec-sensor/include/config.h` is the assignment. The library is `bogde/HX711`. The sensor node reads it and reports `ventPressureRaw` in the packet (version 3). The Waveshare learns an idle baseline **while the pump is off** (lowest quiet reading over 30 s), then each end-of-pulse sample is compared against it. A step of at least `VENT_PRESSURE_MIN_STEP` counts as flow. Six bad pulses with no good pulse at all is a valve fault: pump off, error, idle. This is a positive check on the mechanical valve position and does not depend on humidity at all. The raw value is logged every packet and shown on the admin screen.
 
 **Coil current sense (built, disabled).** A 1-ohm 1 W shunt in the valve 12 V return: valve(-) — GPIO 3 tap — 1 ohm — 12 V(-). The 4 W coil draws about 0.33 A, so GPIO 3 reads about 330 mV energized, ~0 mV off; fault threshold 150 mV. A 1N4007 flyback diode goes across the valve coil, stripe to the + side. The 12 V supply negative must be common with the logic ground. GPIO 3 is an ESP32-S3 strapping pin, but at boot the relay is still open so the node sits at 0 V — the default strap state. `VALVE_CURRENT_CHECK_ENABLED` is **0** for the first all-up test because the shunt is not wired yet. Set it to 1 once the shunt and common ground are in place.
 
@@ -275,3 +311,196 @@ Do not power the module from the 5V coil supply. The board has pull-up resistors
 The AT24C32 is not needed for timekeeping. If the bus becomes unreliable after the module is added, tie A0, A1, and A2 to ground so the EEPROM has a fixed address and stays unused.
 
 The DS3231M driver is active. The firmware reads it at startup and refreshes the software cache once a minute. Clock-screen adjustments are written to the RTC, and Done commits the displayed time even when no field was changed; both paths clear the oscillator-stop flag and enable the backup oscillator. On first installation, open Set Clock, correct any fields that need it, and tap Done. If the RTC is absent, unreadable, or has invalid/stopped time, the firmware keeps the saved software-clock fallback and reports the fallback on the serial console. The AT24C32 remains unused.
+
+## Custom carrier board design — 2026-11-18
+
+Two-board custom carrier replacing the loose bench wiring. Two existing modules stay as plug-in units: the Waveshare ESP32-S3 4.3-inch Type B (control) and the no-display Heltec WiFi LoRa 32 V4.3 (sensor node).
+
+**Board A — power/AC.** 120V 15A input with fuse and MOV, unswitched neutral/ground bus bars, 120V->12V and 120V->5V supplies, and all eight relays with the XL9535 at `0x21` and a ULN2803A-type coil driver. **Board B — control/DC.** Heltec V4.3 header, all sensor connectors, thermistor divider, HX711 pressure input, DS3231M RTC, and the Waveshare I2C + 5V JSTs. The boards join with one short keyed low-voltage bridge (5V, GND, SDA, SCL, VALVE_SENSE, AGND). No mains crosses the bridge. The split exists for noise as much as safety: the HX711 ADC and the LoRa radio are the sensitive parts, the switchers and relay coils are the noisy parts.
+
+**Relay map on the new board — grouped by supply domain, not by bench history:**
+
+| Channel | Bit | Function | Supply |
+|---|---|---|---|
+| K1 | P0.0 | Pump (~18W) | 120V AC |
+| K2 | P0.1 | Heater mat (~500W) | 120V AC |
+| K3 | P0.2 | AUX AC 1 (future engine heater) | 120V AC |
+| K4 | P0.3 | AUX AC 2 (future accessory) | 120V AC |
+| K5 | P0.4 | Case fan | 12V DC |
+| K6 | P0.5 | To-Engine valve | 12V DC |
+| K7 | P0.6 | From-Engine valve | 12V DC |
+| K8 | P0.7 | AUX DC (switched output) | 12V DC |
+
+The XL9535 wires straight down in order (P0.0 -> K1 coil ... P0.7 -> K8 coil), so the board reads top to bottom in supply groups. The bench board keeps its historical map (K2 pump, K3 heater, K4 fan, K5/K6 valves, K7/K8 aux) because that is what the current wiring and the working firmware assume. The remap is a constant swap in `include/config.h` when the custom board is built and the bench relay board is retired. The driver calls every relay through a named constant, so only the `RELAY_BIT_*` values change; the helper names in `relay.h` are voltage-scoped (`aux12v`, `auxAc1`, `auxAc2`) rather than channel-scoped, so each keeps pointing at the same function.
+
+**Power budget (sizing the supplies), from verified part data:**
+
+| Rail | Load | Max current |
+|---|---|---|
+| 12 V | valve coil (K6), 4 W solenoid | 0.42 A |
+| 12 V | valve coil (K7), 4 W solenoid | 0.42 A |
+| 12 V | case fan (K5) | 0.60 A |
+| 12 V | K8 aux DC output (reserved) | 3.00 A |
+| 12 V | **total** | **4.44 A** |
+| 5 V | 8 relay coils at 71.4 mA (Songle datasheet) | 0.57 A |
+| 5 V | Waveshare ESP32-S3 + 4.3" RGB LCD | 1.00 A |
+| 5 V | Heltec V4.3 (LoRa TX at 28 dBm) | 0.35 A |
+| 5 V | Board B 3.3 V rail + sensors | 0.15 A |
+| 5 V | **total** | **2.07 A** |
+
+The original 12 V @ 2 A supply was too small once a several-amp 12 V aux output was added alongside the valves and fan. The 12 V supply is now specified at 12 V @ 5 A, and the K8 aux output gets its own 3 A fuse so a fault in a future accessory cannot brown out the valves and fan. The 5 V supply is specified at 5 V @ 4 A for margin over the 2.07 A worst case.
+
+**Source verification results (do not accept these from a draft):**
+
+- **Songle SRD-05VDC-SL-C, from the manufacturer datasheet (electrobot.gr mirror):** coil 05 = 5 V nominal, 71.4 mA, 70 ohm, 0.36 W, pull-in 75% max, drop-out 10% min, max allowable voltage 110% of nominal. Contacts are Form C (SPDT): **resistive 10 A at 125 VAC, 7 A at 240 VAC, 10 A at 28 VDC; inductive (cos F 0.4) only 3 A at 120 VAC / 3 A at 28 VDC.** Max allowable power for Form C is 800 VA. Max allowable voltage 250 VAC / 110 VDC. The commonly quoted "10 A 250 VAC" is a marketing figure, not the datasheet rating. Our loads are comfortably inside it: heater 500 W = 4.2 A resistive, pump 18 W = 0.15 A inductive.
+- **Heltec WiFi LoRa 32 V4.3 schematic (Altium source, meshcorepolska.org mirror):** USB VBUS reaches `VDD_5V` through fuse F1 (JSMD0805-300L) and P-channel MOSFET Q4 (Si2302CDS-T1-GE3) with R8 100K / R10 1K gate network, not a direct connection. Heltec's own documentation says to power from USB or the 5 V pin, never both. **GPIO 8 through 14 are not broken out to either header** — they carry the SX1262 LoRa SPI bus and the SPI flash. The board exposes 28 GPIOs total, matching the header silkscreen.
+- **I2C topology: the Waveshare is the only master on the shared bus.** The Heltec cannot join it, because GPIO 8-14 are unavailable on the V4.3. The Heltec's firmware uses two private hardware I2C peripherals: `TwoWire(0)` on GPIO 17 (SDA) / 18 (SCL) for the To-Engine SHT40, and `TwoWire(1)` on GPIO 15 (SDA) / 16 (SCL) for the From-Engine SHT40, both at 100 kHz. Heltec-to-Waveshare communication is ESP-NOW, not I2C. The shared bus (Waveshare GPIO 8/9) carries only the GT911 touch, the CH422G, the XL9535 at `0x21`, and the DS3231M at `0x68`.
+
+**Waveshare ESP32-S3 4.3-inch Type B GPIO map (from our own firmware, `src/display.cpp`):**
+
+LCD RGB bus (all consumed): GPIO 14, 38, 18, 17, 10 (B0-B4); 39, 0, 45, 48, 47, 21 (G0-G5); 1, 2, 42, 41, 40 (R0-R4). Control: hsync 46, vsync 3, de 5, pclk 7.
+
+So the LCD alone eats: 0, 1, 2, 3, 5, 7, 10, 14, 17, 18, 21, 38, 39, 40, 41, 42, 45, 46, 47, 48 - twenty pins.
+
+Other board use: GPIO 8 = SDA, GPIO 9 = SCL (shared I2C bus, confirmed in `include/config.h`). GPIO 4 = GT911 INT. GPIO 43/44 go to the onboard CH422G (RS485 + touch reset), so they are not a plain UART.
+
+**Free GPIOs on the Waveshare, for the Board A UART link:** GPIO 11, 12, 13, 15, 16, 19, 20, 33, 34, 35, 36, 37, 43, 44 (43/44 only via the CH422G, so not directly usable as a plain UART). Practically free and directly available: **11, 12, 13, 15, 16, 19, 20, 33, 34, 35, 36, 37**. Note GPIO 19/20 are the native USB D-/D+ and are used by USB CDC for flashing and serial logs, so they are not a good choice for a permanent link. GPIO 35 drives the onboard white LED. GPIO 36 is the Vext control on the Heltec, not relevant here.
+
+**Chosen UART assignment:** **GPIO 15 = Waveshare TX (to Board A RX), GPIO 16 = Waveshare RX (from Board A TX).** Both are free, both are on the Waveshare's header breakouts, and neither is a strapping pin for the S3 in a way that matters here. This changes the Waveshare connector from the old 4-pin I2C + 2-pin power scheme.
+
+**Revised Waveshare to Board B connection:**
+
+| Connector | Pins | Carries |
+|---|---|---|
+| JST, 8-pin | 5V, GND, TX (GPIO15), RX (GPIO16), plus 4 spare/ID | power and UART |
+| JST, 4-pin | SDA (GPIO8), SCL (GPIO9), 3V3, GND | I2C bus for GT911 + DS3231M |
+
+The I2C connector stays because the GT911 touch and the DS3231M RTC still live on the Waveshare's I2C bus. The XL9535 moves to Board A, so it leaves the Waveshare's bus entirely.
+
+**Note on GPIO 19/20:** they are the native USB pins and the firmware uses USB CDC for flash and serial logging. They must stay on USB.
+
+**Note on the CH422G:** GPIO 43/44 reach the onboard CH422G, which drives the RS485 transceiver and the GT911 reset. They cannot be used as a direct UART to Board A without disrupting the touch reset sequence, which would kill the touch interface. The onboard RS485 connector is therefore not usable for this link.
+
+**RS-485 upgrade path:** the protocol layer is transport-independent (CRC16 on every frame). If the cable ever needs to be longer than a few metres or needs galvanic isolation, swap the UART electrical layer for RS-485 with a transceiver on each end; the message format does not change.
+
+
+**Corrections found during the design review, worth keeping in mind:**
+- Songle SRD-05VDC-SL-C pinout is 1=coil+, 2=coil-, 3=COM, **4=NO, 5=NC**. Every load wires COM -> NO so it is dead when the coil is off. NO and NC swapped is a silent fail-dangerous error.
+- The HX711 pressure module must be powered from **3.3V, not 5V**. Its DOUT pull-up follows the module VCC, so 5V would drive ~5V into a 3.3V ESP32-S3 pin, and its SCK high-threshold (0.8 x DVDD) at 5V would reject the 3.3V clock. "Fine with either" refers to the module's power input only.
+- The vent pressure pins are **DOUT = GPIO 48, SCK = GPIO 47** (from the code). An earlier note in these docs had them swapped.
+- The Heltec V4.3 silkscreen gives header pin numbers only, not GPIO names. Confirmed map: J2 = GND, 5V, Ve, Ve, 44, 43, RST, 0, 36, 35, 34, 33, 47, 48, 26, 21, 20, 19 with top pair 17 (inner) / 18 (outer); J3 = GND, 3V3, 3V3, 37, 46, 45, 42, 41, 40, 39, 38, 1, 2, 3, 4, 5, 6, 7 with top pair 15 (outer) / 16 (inner).
+- `VALVE_CURRENT_MIN_MV` is 150 mV. With both valve coils on the shared 1 ohm shunt the reading is about 660 mV, one coil about 330 mV. Both clear the threshold, so no firmware change was needed.
+
+### Heater thermal control (decided 2026-11-18)
+
+**The external thermistor stays the primary control sensor.** It sits in the seam where the mat edges meet, on the outside of the tube near the middle of its length, reading tube-wall temperature. Firmware regulates it to 240 F (120 F in bench test mode). It stays where it is.
+
+Reasoning: the desiccant sits against the inner wall, so inner-wall temperature is what protects it, and the inner wall is *cooler* than the outer wall (heat flows inward to the desiccant and outward to ambient). The seam thermistor reads the outer wall, so holding it at 240 F bounds the desiccant with margin. Waiting for centre-air to reach 240 F would instead require driving the mat harder, and the wall-adjacent desiccant would see that overshoot first. Stagnant air in a desiccant chamber makes the lag worse, not better.
+
+**The seam reading IS representative of the tube wall.** An earlier concern that the seam would under-read the mat-covered hot zones was wrong and is retracted. The tube is aluminium and conducts well along its length, the gap is only 8 mm, the seam is covered with thermal kapton tape, and an aluminium-fiberglass insulation layer wraps the assembly. The axial gradient (seam versus covered) is therefore small. The gradient that actually matters is radial: mat surface, outer wall, inner wall, desiccant. This means:
+- The external cutoff belongs in the seam area with the control sensor. Same location is correct, not a compromise.
+- If the seam is later found to read unrepresentatively, the mat can be pulled back and the sensor tucked under it. That is a bench-time physical adjustment, and it changes calibration, not validity.
+
+**Silica gel:** the desiccant is silica beads. 240 F sits inside the commonly quoted 200-250 F regeneration range, with some sources extending to 300 F for standard beads. 240 F is a sound operating point; exceeding a bead's maximum regeneration temperature degrades it, which is why the hardware cutoff exists.
+
+**The mat NTC is a LIMIT on the mat itself, not a second control sensor.** Two jobs:
+1. It bounds the mat's own maximum service temperature, which the wall sensor cannot see.
+2. It catches loss of mat-to-tube contact. If the mat lifts locally, that region runs hotter while the tube reading stays at target, so the controller drives harder and the gap widens. The NTC sees this directly.
+
+It is a redundancy against the wall sensor, not a correction for a large seam offset. It still belongs in the centre of the mat's width at mid-length, the true hot zone, and the two sensors stay in different places on purpose so a single local failure cannot fool both.
+
+**No thermistor inside the tube for now.** A penetration into the desiccant vessel is a mechanical and seal change with real consequences - a leak ruins the desiccant and a slow air leak defeats the drying. Desiccant temperature is well approximated by the inner wall, which is below the wall temperature already measured from outside. The mat NTC covers the mat's own temperature with no penetration. If chamber air temperature is wanted later for cycle timing, the SHT40 probes already report temperature.
+
+**Measurement plan:** the v2 mat NTC and the seam thermistor logged together during heat-up quantify the mat-versus-wall offset, which is the number that sets the NTC limit and validates the cutoff set point. A thermal camera is a good spatial check for hot spots and for spotting the mat losing contact, but note the emissivity asymmetry: silicone has high emissivity and reads accurately, while bare aluminium has very low emissivity and reads badly. Put a small matte high-emissivity tape patch on the tube wherever an IR reading is wanted.
+
+**Mat v2 spec, to request from the manufacturer:**
+
+- 120 VAC, 500 W confirmed. 18 AWG stranded leads to a connector.
+- Embedded 100K ohm beta 3950 NTC with its own 2-wire lead to a separate connector, positioned in the centre of the mat's width at mid-length (the hot zone).
+- Factory-set, non-user-adjustable high-limit cutoff in the mat's internal wiring, in series with the element, rated 250 VAC and 15 A. Latching self-hold preferred over a one-shot fuse so a trip cannot be silently replaced in the field.
+- No buttons and no display on the mat. If a thermostat is included, only its dry contact is exposed.
+- Uniform watt density, no hot spots. State watts per square inch, maximum service surface temperature, and element resistance in ohms.
+- Insulation class, moisture rating, and UL or CE listing for the assembly.
+
+**Optional firmware idea, no hardware:** near target, shorten the heater on-window instead of full on/off (duty limiting) to reduce overshoot and element stress. Same relay, same fail-safe character.
+
+### Temperature safety ladder
+
+Four rungs, each with a different sensor and a different failure mode:
+
+| Rung | Set point | Sensor | Action |
+|---|---|---|---|
+| Control | 240 F | seam thermistor (external) | normal heater cycling |
+| Firmware abort | 260 F | seam thermistor (external) | cycle stops, all outputs off |
+| External cutoff | 270 F | bimetal or fuse at the chamber | whole AC feed drops, latches |
+| Mat internal cutoff | per mat service temp | inside the mat | element drops |
+
+Note the gap: the firmware abort at 260 F and the hardware cutoff at 270 F are both driven by the *same* seam sensor. If that sensor fails low, the controller drives the mat continuously and neither of the first two rungs can act - only the external cutoff and the mat's own cutoff remain. That is precisely why the mat NTC has to be an independent path into the Board A MCU rather than another firmware check on the same reading.
+
+**Select the cutoff on hold current, not just trip temperature.** A cutoff or fuse mounted in a hot enclosure must have a hold current rating above the actual line current at the ambient temperature it will see, or it nuisance-trips during a normal cycle. The line carries the heater plus converter input, roughly 5 A total. Confirm Ih at the mounting temperature.
+
+### Independent overtemperature layers (decided 2026-11-18)
+
+Three layers, deliberately independent of each other:
+
+1. **External cutoff at the chamber**, in series with the entire 120 VAC feed so a trip kills heater, pump, valves and converters. Latching, resettable only by opening the enclosure. Set point around 280 F, pending mat surface temperature data. It remains the last thermal layer if current sense fails, if K9 itself welds, or if the mat runs away on current that was commanded. It is not the only protection against a hung controller or a welded heater relay; that electrical class is K9, below.
+2. **Mat NTC into the Board A MCU**, independent of the Waveshare. Board A drops the heater on its own if mat temperature exceeds the limit derived from the mat's maximum service temperature.
+3. **The mat's own internal cutoff**, manufacturer-fitted.
+
+Board A should also provision one spare analog input for a second wall thermistor near the heater's end, for gradient monitoring later.
+
+**Accepted consequence:** a trip of the external cutoff kills the controller, so there is no on-screen record of that fault. A K9 drop does not kill the controller; Board A should report it.
+
+### K9 heater disconnect and fault-response gate (decided 2026-11-18)
+
+K9 is a ninth relay. It is not an XL9535 channel and must not be added to the K1-K8 map above. It sits in series with the heater only. K2 still does the bang-bang cycling. K9 stays energized while the heater is armed and drops on a fault, so it rarely switches.
+
+It covers two electrical faults the temperature ladder does not: heater current flowing while the command says the heater is off (welded K2 contact or a stuck driver), and the controller going quiet while the heater was left on (hung MCU, lost UART heartbeat).
+
+**K9 is not short-circuit protection.** The proposed AC acquisition takes at least 0.8 s for four channels, plus processing and relay release. That cannot catch a dead short. Hard shorts are the branch fuse's job and open in milliseconds. Do not describe K9, or the AC scan, as fast heater-current protection.
+
+**Response-time requirement, thermal class only:**
+
+- Maximum time from (a) loss of a valid heartbeat while the heater is armed, or (b) detection of heater current while the heater command is de-energised, to full interruption by K9, shall not exceed 5 seconds. Design target 1 second.
+- Why that number is enough: 500 W into the aluminium tube and silica bed climbs on the order of tens of degrees F per minute. One second of extra on-time adds well under 1 F. Five seconds is still inside the margin between 240 F control, the 270 F seam cutoff, and desiccant tolerance. The control loop already runs at 1 Hz. The safety path does not need to be faster than the control path. It needs to be independent of it.
+- The 0.8 s four-channel AC scan is acceptable for this class. It is diagnostic monitoring, not fast protection. This is a closed safety-review gate. Do not reopen it as if the scan speed were still undecided.
+
+**Constraints that make the requirement real:**
+
+- K9's coil driver is independent of the XL9535 that drives K2. The same expander for both is theater: one fault takes out the normal path and the safety path together.
+- K9 is de-energised, heater disconnected, during every power-up and every brownout, until a permission latch is satisfied: rail OK, and MCU heartbeat present, and no fault latch. The watchdog alone is not sufficient. This has to be proven across the rail ramp and the rail collapse, not asserted.
+- The permission latch lives on Board A. The Waveshare still decides when the heater should be on. Board A owns the bounds and can drop K9 without the Waveshare.
+- Coil voltage and driver part are not chosen yet. Do not fold the K9 coil into the 5 V budget table until the part is real. Whatever the coil voltage, its enable must not come from an XL9535 pin.
+
+### What the earlier paragraphs in this section no longer say
+
+Path B is the architecture. Board A has its own MCU and owns the bounds: current, time, mat temperature, link loss, and the hardware gate that drops K9. The Waveshare still decides when. Where the Board A / Board B paragraph above conflicts, this list wins:
+
+- The bridge is UART plus power, not shared I2C. Waveshare GPIO 15 is TX to Board A RX. Waveshare GPIO 16 is RX from Board A TX. CRC16 stays on every frame so RS-485 can replace the electrical layer later without a message change. Do not use the onboard RS485 connector. GPIO 43/44 are the CH422G.
+- The XL9535 moves to Board A's private I2C and leaves the Waveshare bus. GT911 and the DS3231M stay on Waveshare GPIO 8/9.
+- Coil drivers are discrete logic-level MOSFETs, not a ULN2803A.
+- The shared valve shunt and the bridge VALVE_SENSE / AGND pins are dropped. Per-channel sense on Board A replaces both. K6 and K7 are separate channels, so each valve coil gets its own shunt.
+- Relay class is HF115F / G5LE, not the bench Songle, once the custom board exists. The bench board and its firmware map stay as they are until that board is retired.
+- Supplies stay 12 V at 5 A and 5 V at 4 A.
+
+### Still open before a schematic is committed
+
+These are engineering gates, not approval to energize mains. Heater diagnostic pulses stay disabled until an allowable test-energy budget is written down. Do not guess footprints, and do not treat a differential connector terminal as raw UART.
+
+| Item | Who | What is still missing |
+|---|---|---|
+| AC current sensor | board design | A real CT, not a placeholder. Resolution must tell 0 mA from heater-on. Response and recovery are open. |
+| Permission latch | board design | Prove K9 is OFF through power-up and brownout, not only while the watchdog is running. |
+| Seam cutoff | mat vendor, then us | Hot continuous-current rating at mounting temperature, about 5 A line near 240 F. Trip behavior. Mixed-load interruption: heater resistive, pump inductive, converters on the same feed. |
+| Seam cutoff aux contact | board design | Isolate it before it touches a Board A GPIO. |
+| Mat NTC | mat vendor | Curve (expect 100K beta 3950), insulation, 2-wire vs 3-wire, maximum service temperature. Spare gradient input stays a separate analog channel. |
+| Waveshare GPIO 15/16 | board design | Firmware assignment is settled. Physical raw-pin access on the module is not verified. |
+| Heltec headers | board design | Mating geometry, and proof that USB and the 5 V pin are never both sources. Schematic already says never both. |
+| Branch fuse | us, then board design | Pump locked-rotor inrush and any aux inrush. Coordination waits on those numbers. |
+| Test energy | us | How long the heater may be pulsed before the safety path is proven. Gates the first heater test on the new board, not tonight's bench. |
+
+### Tooling (2026-11-18)
+
+Flux's trial was 1000 credits. Those were used in about two hours, still in discussion, before a schematic existed. The $100/month plan includes 1200 credits. Do not use Flux as the workhorse to the finish line. The written spec in this file is the deliverable and does not belong to any tool. Flux is useful as a checkpoint reviewer. Schematic capture can move to KiCad or EasyEDA, with a one-time human review of the mains layout if that is wanted. Nothing about this board blocks the bench test. Do not reflash the Waveshare before that test.
+
+

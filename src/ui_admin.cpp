@@ -130,7 +130,7 @@ void uiUpdateAdmin() {
              "Relays      %s\n"
              "Vent press  %s\n"
              "Last purge  %s\n"
-             "K1 unused. K2 pump, K3 heater, K4 fan, K5/K6 valves.",
+             "K1 aux 12V, K2 pump, K3 heat, K4 fan, K5/K6 valves, K7/K8 aux.",
              toRh, toF, fromRh, fromF, chamber, chipText, relays, pressure, purge);
     lv_label_set_text(adminBody, body);
 }

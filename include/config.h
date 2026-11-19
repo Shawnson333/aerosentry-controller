@@ -27,7 +27,7 @@
 /* --- DS3231M real-time clock, on the shared I2C bus --- */
 #define DS3231_ADDR             0x68
 
-/* Relay map, XL9535 port 0, active-high. K1 is P0.0 and does not drive.
+/* Relay map, XL9535 port 0, active-high.
    K2 was confirmed on P0.1. K3-K8 follow that order from the port-0 sweep.
       bit 1 / K2 = Pump
       bit 2 / K3 = Heater mat
@@ -37,18 +37,46 @@
                atmosphere (the vent line the pressure sensor watches).
       bit 5 / K6 = From-Engine valve. Energized = pull fresh ambient air into
                the chamber for recharge, so no engine air is drawn in.
-      bit 6 / K7 = AUX, future engine heater
-      bit 7 / K8 = AUX, future user accessory
-      bit 0 / K1 = unused, never energized
-*/
+      bit 0 / K1 = AUX, switched 12 V output (future 12 V accessory)
+      bit 6 / K7 = AUX, future engine heater (120 V AC)
+      bit 7 / K8 = AUX, future user accessory (120 V AC)
+   All eight channels are enabled in the driver. The aux channels are not
+   driven by any cycle; the mask only permits a write, so nothing energizes
+   an aux relay unless the firmware asks for it. NOTE: the bench XL9535 relay
+   board has a faulty K1 channel, so leave bit 0 alone until the custom
+   carrier board replaces that board.
+
+   INTENDED CUSTOM CARRIER BOARD MAP (not live yet - do not apply until the
+   custom board exists and the bench relay board is retired). On the new board
+   the relays are grouped by supply domain, K1-K4 on 120V AC and K5-K8 on
+   12V DC, and the XL9535 wires straight down in order (P0.0 -> K1 coil, ...
+   P0.7 -> K8 coil). The remap is then:
+       P0.0 / K1 = Pump,          120V AC
+       P0.1 / K2 = Heater,        120V AC
+       P0.2 / K3 = AUX AC 1,      120V AC (future engine heater)
+       P0.3 / K4 = AUX AC 2,      120V AC (future accessory)
+       P0.4 / K5 = Case fan,      12V DC
+       P0.5 / K6 = To-Engine valve,   12V DC
+       P0.6 / K7 = From-Engine valve, 12V DC
+       P0.7 / K8 = AUX DC,        12V DC (switched output)
+   The driver calls every relay through a named constant, so the remap is a
+   constant swap only: RELAY_BIT_PUMP 0, RELAY_BIT_HEATER 1,
+   RELAY_BIT_AUX_AC1 2, RELAY_BIT_AUX_AC2 3, RELAY_BIT_FAN 4,
+   RELAY_BIT_VALVE_TO 5, RELAY_BIT_VALVE_FROM 6, RELAY_BIT_AUX_12V 7. The
+   helper names in relay.h are voltage-scoped (aux12v, auxAc1, auxAc2) rather
+   than channel-scoped, so each keeps pointing at the same function. */
+#define RELAY_BIT_AUX_12V   0
 #define RELAY_BIT_PUMP      1
 #define RELAY_BIT_HEATER    2
 #define RELAY_BIT_FAN       3
 #define RELAY_BIT_VALVE_TO  4
 #define RELAY_BIT_VALVE_FROM 5
-#define RELAY_ALLOWED_MASK  ((1 << RELAY_BIT_PUMP) | (1 << RELAY_BIT_HEATER) | \
-                             (1 << RELAY_BIT_FAN) | (1 << RELAY_BIT_VALVE_TO) | \
-                             (1 << RELAY_BIT_VALVE_FROM))
+#define RELAY_BIT_AUX_AC1   6
+#define RELAY_BIT_AUX_AC2   7
+#define RELAY_ALLOWED_MASK  ((1 << RELAY_BIT_AUX_12V) | (1 << RELAY_BIT_PUMP) | \
+                             (1 << RELAY_BIT_HEATER) | (1 << RELAY_BIT_FAN) | \
+                             (1 << RELAY_BIT_VALVE_TO) | (1 << RELAY_BIT_VALVE_FROM) | \
+                             (1 << RELAY_BIT_AUX_AC1) | (1 << RELAY_BIT_AUX_AC2))
 
 /* --- Safety / cycle timing (best guesses; tune after testing) --- */
 #define SAT_LIMIT_RH            40.0f   // To-Engine RH hard-stop (%). Not used in Recharge.

@@ -2,11 +2,16 @@
    RELAY DRIVER — XL9535 8-channel I2C GPIO expander
 
    Port 0, active-high:
+     bit 0 / K1 = AUX, switched 12 V output
      bit 1 / K2 = Pump
      bit 2 / K3 = Heater mat
      bit 3 / K4 = Case fan
-     bit 4 / K5 = AUX (not driven by any cycle)
-   bit 0 / K1 and bits 5-7 / K6-K8 are rejected by RELAY_ALLOWED_MASK.
+     bit 4 / K5 = To-Engine valve
+     bit 5 / K6 = From-Engine valve
+     bit 6 / K7 = AUX, 120 V AC
+     bit 7 / K8 = AUX, 120 V AC
+   All eight bits are allowed by RELAY_ALLOWED_MASK. The aux channels are
+   not driven by any cycle.
    Port 1 is unused and always written off.
    ======================================================================== */
 
@@ -36,7 +41,7 @@ bool RelayDriver::begin() {
     ok = writePairChecked(0x06, 0x00, 0x00) && ok;  // Both ports outputs.
     _state = 0x00;
     _initialized = ok;
-    Serial.println(ok ? F("XL9535 outputs OFF (K1 unused)") : F("XL9535 init write failed"));
+    Serial.println(ok ? F("XL9535 outputs OFF (8 channels enabled)") : F("XL9535 init write failed"));
     return ok;
 #endif
 }
@@ -65,6 +70,13 @@ void RelayDriver::valveToOn()   { setChannel(RELAY_BIT_VALVE_TO, true); }
 void RelayDriver::valveToOff()  { setChannel(RELAY_BIT_VALVE_TO, false); }
 void RelayDriver::valveFromOn() { setChannel(RELAY_BIT_VALVE_FROM, true); }
 void RelayDriver::valveFromOff(){ setChannel(RELAY_BIT_VALVE_FROM, false); }
+
+void RelayDriver::aux12vOn()  { setChannel(RELAY_BIT_AUX_12V, true); }
+void RelayDriver::aux12vOff() { setChannel(RELAY_BIT_AUX_12V, false); }
+void RelayDriver::auxAc1On()  { setChannel(RELAY_BIT_AUX_AC1, true); }
+void RelayDriver::auxAc1Off() { setChannel(RELAY_BIT_AUX_AC1, false); }
+void RelayDriver::auxAc2On()  { setChannel(RELAY_BIT_AUX_AC2, true); }
+void RelayDriver::auxAc2Off() { setChannel(RELAY_BIT_AUX_AC2, false); }
 
 void RelayDriver::allOff() {
     if (!_initialized) return;
