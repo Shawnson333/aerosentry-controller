@@ -44,7 +44,13 @@ static void cbMinusTarget(lv_event_t* e) {
 
 static void cbStartAuto(lv_event_t* e) {
     (void)e;
-    uiHandleStartResult(Command::START_DRYER_AUTO);
+    if (!stateMachine.config.allowAutoRecharge) {
+        uiHandleStartResult(Command::START_DRYER_AUTO);
+        return;
+    }
+    uiShowChoice(uiAutoRechargeSafetyText(),
+                 [](lv_event_t*) { uiHandleStartResult(Command::START_DRYER_AUTO); }, "Start",
+                 [](lv_event_t*) { uiShowAutoCycle(); }, "Back");
 }
 
 static void cbBack(lv_event_t* e) {
@@ -148,6 +154,13 @@ void uiShowAutoCycle() {
         lv_obj_set_style_text_font(lblBack, &lv_font_montserrat_28, 0);
     }
 
+    // The Manual Dryer screen has its own copy of this checkbox, so show the
+    // current setting every time, not only when the screen is first built.
+    if (stateMachine.config.allowAutoRecharge) {
+        lv_obj_add_state(autoRechargeCheck, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(autoRechargeCheck, LV_STATE_CHECKED);
+    }
     lv_scr_load(autoScreen);
     lv_obj_clear_flag(autoScreen, LV_OBJ_FLAG_HIDDEN);
 }

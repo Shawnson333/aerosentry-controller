@@ -112,7 +112,8 @@ void loop() {
             uiUpdateSensors(sensors.toEngineRH, sensors.fromEngineRH,
                             toEngineReady(), fromEngineReady());
             uiUpdateOutputs(stateMachine.pumpOn(), stateMachine.heaterOn(),
-                            stateMachine.fanOn(), stateMachine.chipTempC());
+                            stateMachine.fanOn(), stateMachine.valveOpen(),
+                            stateMachine.chipTempC());
             if (uiAdminVisible()) uiUpdateAdmin();
             systemClockSave();
             lastUiTick = millis();
@@ -125,7 +126,8 @@ void loop() {
             uiSetRunning(stateMachine.isRunning());
             uiUpdateStatus(stateMachine.statusText());
             uiUpdateOutputs(stateMachine.pumpOn(), stateMachine.heaterOn(),
-                            stateMachine.fanOn(), stateMachine.chipTempC());
+                            stateMachine.fanOn(), stateMachine.valveOpen(),
+                            stateMachine.chipTempC());
             lastMode = currentMode;
         }
 

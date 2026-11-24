@@ -49,6 +49,10 @@ void uiShowClock();
 /* Start a cycle, or show why the required sensor is unavailable. */
 void uiHandleStartResult(Command cmd);
 
+/* Safety prompts shown before anything that can heat the chamber. */
+const char* uiRechargeSafetyText();
+const char* uiAutoRechargeSafetyText();
+
 /* Update the main-screen software clock text. */
 void uiUpdateDateTime(const char *text);
 
@@ -56,7 +60,7 @@ void uiUpdateDateTime(const char *text);
 void uiUpdateSensors(float toRH, float fromRH, bool toValid, bool fromValid);
 
 /* Show which mapped relays the cycle logic is commanding. */
-void uiUpdateOutputs(bool pumpOn, bool heaterOn, bool fanOn, float chipC);
+void uiUpdateOutputs(bool pumpOn, bool heaterOn, bool fanOn, bool valvesOpen, float chipC);
 
 /* Update the phase/status line on the Main screen. */
 void uiUpdateStatus(const char* text);

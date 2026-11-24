@@ -97,7 +97,7 @@ void uiShowMain() {
         lv_obj_set_style_text_font(fromEngineLabel, &lv_font_montserrat_28, 0);
 
         outputLabel = lv_label_create(mainScreen);
-        lv_label_set_text(outputLabel, "K2 pump off   K3 heat off   K4 fan off");
+        lv_label_set_text(outputLabel, "Pump off   Heat off   Fan off   Valves closed");
         lv_obj_align(outputLabel, LV_ALIGN_TOP_MID, 0, 285);
         lv_obj_set_style_text_color(outputLabel, lv_color_hex(UI_TEXT_COLOR), 0);
         lv_obj_set_style_text_font(outputLabel, &lv_font_montserrat_20, 0);
@@ -150,7 +150,7 @@ void uiUpdateStatus(const char* text) {
     }
 }
 
-void uiUpdateOutputs(bool pumpOn, bool heaterOn, bool fanOn, float chipC) {
+void uiUpdateOutputs(bool pumpOn, bool heaterOn, bool fanOn, bool valvesOpen, float chipC) {
     if (outputLabel == nullptr) return;
     if (!uiDiagnosticsVisible()) {
         lv_obj_add_flag(outputLabel, LV_OBJ_FLAG_HIDDEN);
@@ -159,16 +159,18 @@ void uiUpdateOutputs(bool pumpOn, bool heaterOn, bool fanOn, float chipC) {
     lv_obj_clear_flag(outputLabel, LV_OBJ_FLAG_HIDDEN);
     char buf[96];
     if (chipC == chipC) {
-        snprintf(buf, sizeof(buf), "K2 pump %s   K3 heat %s   K4 fan %s   chip %.0fC",
+        snprintf(buf, sizeof(buf), "Pump %s   Heat %s   Fan %s   Valves %s   Chip %.0fC",
                  pumpOn ? "ON" : "off",
                  heaterOn ? "ON" : "off",
                  fanOn ? "ON" : "off",
+                 valvesOpen ? "VENT" : "closed",
                  chipC);
     } else {
-        snprintf(buf, sizeof(buf), "K2 pump %s   K3 heat %s   K4 fan %s",
+        snprintf(buf, sizeof(buf), "Pump %s   Heat %s   Fan %s   Valves %s",
                  pumpOn ? "ON" : "off",
                  heaterOn ? "ON" : "off",
-                 fanOn ? "ON" : "off");
+                 fanOn ? "ON" : "off",
+                 valvesOpen ? "VENT" : "closed");
     }
     lv_label_set_text(outputLabel, buf);
 }
@@ -230,10 +232,9 @@ static void cbDryer(lv_event_t* e) {
 
 static void cbRecharge(lv_event_t* e) {
     (void)e;
-    uiShowWarning("Disconnect both engine lines.\nClear area around desiccant tube.\nHeaters will be HOT.",
-                  [](lv_event_t*) {
-                      uiHandleStartResult(Command::START_RECHARGE);
-                  });
+    uiShowChoice(uiRechargeSafetyText(),
+                 [](lv_event_t*) { uiHandleStartResult(Command::START_RECHARGE); }, "Start Recharge",
+                 [](lv_event_t*) { uiShowMain(); }, "Back");
 }
 
 static void cbStop(lv_event_t* e) {
