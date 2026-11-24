@@ -1,6 +1,23 @@
+"""Regenerate src/logo_img.c (the 800x480 boot and idle logo) from an image.
+
+The mark is cropped from its background, scaled to fit, and placed on the UI
+navy so it does not look pasted on. Needs Pillow (pip install pillow).
+
+Usage:
+    python tools/make_logo.py --input assets/aerosentry-logo.jpg
+"""
+import argparse
+from pathlib import Path
+
 from PIL import Image
 
-src = Image.open(r"C:\Users\sjohn\Downloads\grok_1793227431048.jpg").convert("RGB")
+parser = argparse.ArgumentParser(description="Regenerate src/logo_img.c from an image.")
+parser.add_argument("--input", required=True, help="source image, e.g. assets/aerosentry-logo.jpg")
+parser.add_argument("--output", default=str(Path(__file__).resolve().parents[1] / "src" / "logo_img.c"),
+                    help="C file to write (default: %(default)s)")
+args = parser.parse_args()
+
+src = Image.open(args.input).convert("RGB")
 corner = src.getpixel((8, 8))
 ui = (0x0A, 0x16, 0x28)
 
@@ -40,7 +57,7 @@ canvas = Image.new("RGB", (800, 480), ui)
 canvas.paste(blended, ((800 - blended.width) // 2, (480 - blended.height) // 2))
 print("mark", blended.size)
 
-out = r"c:\Users\sjohn\.platformio\Projects\aerosentry-controller\src\logo_img.c"
+out = args.output
 raw = []
 for y in range(canvas.height):
     for x in range(canvas.width):

@@ -1,1 +1,4 @@
+# Serial tools and the remote bridge
 pyserial>=3.5
+# tools/make_logo.py only
+pillow>=10
