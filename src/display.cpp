@@ -145,7 +145,7 @@ bool displayHardwareBegin() {
 
     esp_lcd_rgb_panel_config_t config = {};
     config.clk_src = LCD_CLK_SRC_PLL160M;
-    config.timings.pclk_hz = 16000000;
+    config.timings.pclk_hz = DISPLAY_PCLK_HZ;  // see config.h for why it is not 16 MHz
     config.timings.h_res = DISPLAY_WIDTH;
     config.timings.v_res = DISPLAY_HEIGHT;
     config.timings.hsync_pulse_width = 4;

@@ -32,6 +32,21 @@
 #define DISPLAY_WIDTH       800
 #define DISPLAY_HEIGHT      480
 
+/* RGB pixel clock (2026-11-24, was 16 MHz). The magenta / gold full-screen
+   flashes are the panel showing a frame whose pixel stream slipped by one
+   byte: the navy background 0x0A1628 is RGB565 0x08A5, byte-swapped 0xA508
+   is gold; the panel blue 0x1A2E4A is 0x1969, byte-swapped 0x6919 is
+   magenta. That happens when the LCD DMA cannot fetch the framebuffer from
+   PSRAM in time. Flash and PSRAM share one bus on this module, so a page
+   change (a full-screen copy into PSRAM plus font and image reads from
+   flash) can starve it. ESP-IDF 4.4 (Arduino core 2.0.17) has no bounce
+   buffer and no restart-on-underrun, so the lever here is the PSRAM load
+   the panel needs: 16 MHz = 32 MB/s, 14 MHz = 28 MB/s. Frame rate goes from
+   39 Hz to 34 Hz. NOT VERIFIED ON THE PANEL. If flashes remain, try 12 MHz
+   (29 Hz); the full fix is Arduino core 3.x (ESP-IDF 5) with bounce buffers.
+   Timing per frame: (800+4+8+8) x (480+4+8+8) = 410,000 pixel clocks. */
+#define DISPLAY_PCLK_HZ     14000000
+
 /* --- XL9535 Relay Expander --- */
 /* Board is marked XL9535. DIP address 0x21. Active-high outputs.
    Register writes contain port 0 then port 1.
