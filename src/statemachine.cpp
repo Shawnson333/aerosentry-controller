@@ -70,6 +70,7 @@ static const StopText STOP_TEXTS[] = {
     /* 16 */ {"RECHARGE_COMPLETE",  "Recharge complete.",                      nullptr},
     /* 17 */ {"RECHARGE_MAX_TIME",  "Recharge reached its time limit.",        "The desiccant may not be fully dry. Consider another Recharge."},
     /* 18 */ {"CONTROLLER_RESTART", "Controller restarted unexpectedly.",      "All outputs were off at restart. Check the unit before starting again."},
+    /* 19 */ {"HEATER_NO_RISE",     "Heater not heating.",                     "Check the heater mat, its fuse, its relay (K3) and the thermistor."},
 };
 
 static const StopText& stopText(StopReason reason) {
@@ -126,6 +127,10 @@ static void defaultStopDetail(StopReason reason, char* buf, size_t size) {
         case StopReason::HEATUP_TIMEOUT:
             snprintf(buf, size, "Still below %d F after %lu min of heating.",
                      RECHARGE_TARGET_TEMP_F, (unsigned long)(RECHARGE_HEATUP_MAX_MS / 60000UL));
+            break;
+        case StopReason::HEATER_NO_RISE:
+            snprintf(buf, size, "Chamber rose less than %.0f F in %lu min of heater-on time.",
+                     HEATER_MIN_RISE_F, (unsigned long)(HEATER_RESPONSE_MS / 60000UL));
             break;
         case StopReason::SAFETY_FAILED:
             snprintf(buf, size, "To-Engine was above %.0f%% after the cool down.", RECHARGE_TARGET_RH);
@@ -255,6 +260,10 @@ StateMachine::StateMachine()
     , _thermalLatched(false)
     , _purgeEpoch(0)
     , _rechargeGoodCycles(0)
+    , _heaterCheckArmed(false)
+    , _heaterCheckLowF(0.0f)
+    , _heaterOnMs(0)
+    , _heaterCheckLastMs(0)
 {
     _stopText[0] = '\0';
     config.dryerOnMinutes = 3;
@@ -536,6 +545,9 @@ void StateMachine::enterMode(SystemMode newMode) {
             _valveNoCurrentCount = 0;
             _valveCommandMs = millis();
             _valveCheckMs = 0;
+            _heaterCheckArmed = false;
+            _heaterOnMs = 0;
+            _heaterCheckLastMs = millis();
             Serial.println(F("Recharge started - valve open loop"));
             break;
         default:
@@ -723,10 +735,15 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                          _rechargePhase == RechargePhase::SAFETY_WAIT;
     if (cooling) {
         _heaterOn = false;
-    } else if (sensorsOk || chamberReady()) {
-        regulateHeater();  // may hold the previous command briefly; never newly heats on a stale reading
+        _heaterCheckArmed = false;
     } else {
-        _heaterOn = false;
+        if (sensorsOk || chamberReady()) {
+            regulateHeater();  // may hold the previous command briefly; never newly heats on a stale reading
+        } else {
+            _heaterOn = false;
+        }
+        checkHeaterResponse();
+        if (_mode != SystemMode::RECHARGE) return;
     }
 
     if (!sensorsOk && _rechargePhase != RechargePhase::COOLDOWN) {
@@ -883,6 +900,36 @@ void StateMachine::updateRecharge(bool sensorsOk) {
             }
             break;
     }
+}
+
+/* Heater response check (user idea 2026-11-24). Tracks the lowest chamber
+   reading since the heater last proved it works (a rise of HEATER_MIN_RISE_F,
+   or reaching target) and the heater-ON time since then. Only fresh chamber
+   readings count, and only time the heater relay was really on. */
+void StateMachine::checkHeaterResponse() {
+    const uint32_t now = millis();
+    const uint32_t elapsed = now - _heaterCheckLastMs;
+    _heaterCheckLastMs = now;
+    if (_rechargeFailure || !chamberReady()) return;
+    const float fahrenheit = celsiusToFahrenheit(sensors.chamberTemp);
+    if (!_heaterCheckArmed) {
+        _heaterCheckArmed = true;
+        _heaterCheckLowF = fahrenheit;
+        _heaterOnMs = 0;
+        return;
+    }
+    if (fahrenheit < _heaterCheckLowF) _heaterCheckLowF = fahrenheit;
+    if (fahrenheit >= _heaterCheckLowF + HEATER_MIN_RISE_F ||
+        fahrenheit >= (float)RECHARGE_TARGET_TEMP_F) {
+        _heaterCheckLowF = fahrenheit;  // the heater works; start a new window
+        _heaterOnMs = 0;
+        return;
+    }
+    if (_appliedHeater) _heaterOnMs += elapsed;
+    if (_heaterOnMs < HEATER_RESPONSE_MS) return;
+    Serial.printf("Heater response fault: %.0f F, low %.0f F, %lu s of heater-on time\n",
+                  fahrenheit, _heaterCheckLowF, (unsigned long)(_heaterOnMs / 1000UL));
+    rechargeFailureCooldown(StopReason::HEATER_NO_RISE);
 }
 
 /* Required recharge readings are missing but the grace has not run out. No new

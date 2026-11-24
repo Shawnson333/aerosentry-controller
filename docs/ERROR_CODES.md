@@ -36,6 +36,7 @@ was cooled first".
 | S15 | SAFETY_FAILED | A safety sample after the cool down was above 15% | Stop, valves closed. | The desiccant is still wet. Run another Recharge. |
 | S16 | RECHARGE_COMPLETE | Three dry samples, cool down, two safety samples at or below 15% | Normal end. With a dryer cycle waiting (Auto Recharge) it resumes that cycle instead. | |
 | S17 | RECHARGE_MAX_TIME | 6 h at temperature without three dry samples; the cool down and safety check then passed | Normal end. | The beads may not be fully dry. |
+| S19 | HEATER_NO_RISE | In a recharge, 4 min of heater-on time without the chamber rising 10 F (or reaching 245 F). Works during heat-up and the hold. | Failure cool down, then stop. A working heater rose 53 F in 2 min from cold on the bench. | Heater mat, its fuse, its relay (K3), the thermistor (a loose thermistor reads low and steady). |
 | S18 | CONTROLLER_RESTART | At boot: power was lost during a cycle, or the last reset was a watchdog, crash or brownout (even when idle) | Everything was turned off at boot. The message gives the reset cause. | Power supply, then the serial log around the reset. |
 
 Starts that are refused (missing sensor, thermal limit, relay test running, remote Recharge) are not stops.

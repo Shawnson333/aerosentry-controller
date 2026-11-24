@@ -43,6 +43,7 @@ struct Plant {
     int32_t flowStep = 100000;
     bool valveStuck = false;
     bool heaterBroken = false;
+    float heaterRateFps = 0.25f;  // chamber rise per second with the heater on (bench: about 0.4 from cold)
     bool repeatPackets = false;  // send every packet twice, like the sensor node does
     uint32_t seq = 0;
     uint32_t nextPacketMs = 0;
@@ -109,7 +110,7 @@ static void invariant(bool ok, const char* what) {
 static void step(Plant& p, uint32_t dt) {
     // Physics.
     const float seconds = dt / 1000.0f;
-    if (heaterRelay() && !p.heaterBroken) p.chamberF += 0.25f * seconds;
+    if (heaterRelay() && !p.heaterBroken) p.chamberF += p.heaterRateFps * seconds;
     const float k = pumpRelay() ? 6.0e-4f : 2.78e-4f;
     p.chamberF -= k * (p.chamberF - p.ambientF) * seconds;
     if (p.model) p.model(p);
@@ -338,14 +339,40 @@ static void testToEngineLostInCooldown() {
     EXPECT(logHas("Stop: S05 TO_ENGINE_LOST"), "no S05 stop");
 }
 
-static void testHeatupTimeout() {
-    reset("Heater never heats: heat-up timeout, cool down check, stop S14");
+static void testHeaterDeadAtStart() {
+    reset("Heater dead from the start: heater response check stops S19 within minutes");
     Plant p; p.model = dryingModel; p.heaterBroken = true;
     EXPECT(startRecharge(p), "recharge start refused");
-    EXPECT(runUntil(p, idle, RECHARGE_HEATUP_MAX_MS + 600000UL), "never stopped");
-    EXPECT(logHas("Recharge failure HEATUP_TIMEOUT"), "no heat-up failure");
-    EXPECT(logHas("Stop: S14 HEATUP_TIMEOUT"), "no S14 stop");
+    const uint32_t started = hostNowMs;
+    EXPECT(runUntil(p, idle, RECHARGE_HEATUP_MAX_MS), "never stopped");
+    EXPECT(logHas("Recharge failure HEATER_NO_RISE"), "no heater failure");
+    EXPECT(logHas("Stop: S19 HEATER_NO_RISE"), "no S19 stop");
+    EXPECT(hostNowMs - started < 12UL * 60000UL, "took %lu min", (unsigned long)((hostNowMs - started) / 60000UL));
     EXPECT(!logHas("Recharge phase 1"), "pulsed without reaching target");
+}
+
+static void testHeaterDiesWhileHolding() {
+    reset("Heater dies after reaching target: S19 within minutes, not at the 6 h limit");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logHas("Recharge phase 2"); }, 3600000UL), "never pulsed");
+    runFor(p, 20UL * 60000UL);
+    EXPECT(!logHas("HEATER_NO_RISE"), "false heater fault while the heater worked");
+    p.heaterBroken = true;
+    const uint32_t died = hostNowMs;
+    EXPECT(runUntil(p, [] { return logHas("Recharge failure HEATER_NO_RISE"); }, 30UL * 60000UL),
+           "dead heater not caught within 30 min");
+    EXPECT(hostNowMs - died < 15UL * 60000UL, "caught after %lu min", (unsigned long)((hostNowMs - died) / 60000UL));
+    EXPECT(runUntil(p, idle, RECHARGE_COOLDOWN_MS + 600000UL), "failure cool down never ended");
+    EXPECT(logHas("Stop: S19 HEATER_NO_RISE"), "no S19 stop");
+}
+
+static void testWeakHeater() {
+    reset("Weak heater that cannot reach 245 F: stops S14 or S19, never runs on");
+    Plant p; p.model = dryingModel; p.heaterRateFps = 0.05f;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, idle, RECHARGE_HEATUP_MAX_MS + RECHARGE_COOLDOWN_MS + 600000UL), "never stopped");
+    EXPECT(logHas("Stop: S14 HEATUP_TIMEOUT") || logHas("Stop: S19 HEATER_NO_RISE"), "no S14/S19 stop");
 }
 
 static void testThermalTrip() {
@@ -639,7 +666,9 @@ int main(int argc, char** argv) {
     testValveStuck();
     testValveSticksInCooldown();
     testToEngineLostInCooldown();
-    testHeatupTimeout();
+    testHeaterDeadAtStart();
+    testHeaterDiesWhileHolding();
+    testWeakHeater();
     testThermalTrip();
     testDryerDropoutGrace();
     testAutoDryerSamples();

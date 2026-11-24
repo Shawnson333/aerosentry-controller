@@ -117,7 +117,17 @@
 #define AUTO_MAX_QUICK_CYCLES   3         // Auto: max quick cycles before regular rotation
 
 #define RECHARGE_MAX_MS         21600000UL // Recharge max 6 hours, counted from the moment the chamber first reaches target
-#define RECHARGE_HEATUP_MAX_MS  3600000UL  // Backstop: chamber must reach target within 1 hour of start, or stop
+#define RECHARGE_HEATUP_MAX_MS  3600000UL  // Backstop: chamber must reach target within 1 hour of start, or stop (S14)
+/* Heater response check (user idea, 2026-11-24). While the heater is
+   switched on, the chamber must rise HEATER_MIN_RISE_F (or reach target)
+   within HEATER_RESPONSE_MS of heater-ON time, or the recharge stops with
+   S19 through the failure cool down. Bench heat-ups rose 53 F in the first
+   2 minutes from cold (82 F start) and 17 F in 2 minutes from 222 F; in the
+   hold the heater takes 240 F back to 245 F in about a minute. So a working
+   heater never comes near this, and a dead one is caught in minutes in any
+   phase, not after the 1 h backstop (heat-up) or the 6 h limit (hold). */
+#define HEATER_RESPONSE_MS      240000UL   // 4 min of heater-on time
+#define HEATER_MIN_RISE_F       10.0f      // ...must raise the chamber this much
 #define RECHARGE_TARGET_RH      15.0f      // To-Engine RH that counts as a good cycle
 #define RECHARGE_GOOD_CYCLES    3          // Consecutive good samples required
 #define RECHARGE_PULSE_ON_MS    10000UL    // Recharge pump on time, first hour

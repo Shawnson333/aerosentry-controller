@@ -62,6 +62,7 @@ enum class StopReason : uint8_t {
     RECHARGE_COMPLETE  = 16,
     RECHARGE_MAX_TIME  = 17,
     CONTROLLER_RESTART = 18,  // Power loss during a cycle, or any watchdog / crash / brownout (shown at boot)
+    HEATER_NO_RISE     = 19,  // Heater on for HEATER_RESPONSE_MS without the chamber rising
 };
 
 /* Stable upper-case name for a stop code, e.g. "VALVE_SUSPECT". */
@@ -198,6 +199,10 @@ private:
     bool _thermalLatched;
     time_t _purgeEpoch;
     uint8_t _rechargeGoodCycles;
+    bool _heaterCheckArmed;         // Heater response check: a low point is being tracked
+    float _heaterCheckLowF;         // Lowest chamber F since the heater last proved it works
+    uint32_t _heaterOnMs;           // Heater-ON time since then
+    uint32_t _heaterCheckLastMs;
 
     bool handleCommand();
     void enterMode(SystemMode newMode);
@@ -213,6 +218,7 @@ private:
     void updateRecharge(bool sensorsOk);
     void holdRechargeForSensors();
     void runCooldownPulse(uint32_t cooldownMs);
+    void checkHeaterResponse();
     void checkSaturation();
     void resetSaturation();
     void checkThermal();
