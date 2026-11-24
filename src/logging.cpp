@@ -1,23 +1,21 @@
 /* ========================================================================
    LOGGING — SD card /hangar.csv
-   
-   STUB for now. When the SD card is wired up, replace this with real
-   SDFat/Arduino SD code.
-   
-   Format (CSV):
+
+   DISABLED 2026-11-20 on user request. The Waveshare Type B has no TF
+   slot on the default SD pins; SD.begin() fails with f_mount (3), and
+   the open/print/close in the old draft stalled the LVGL flush thread.
+   All calls are no-ops until the correct pins / card are wired.
+
+   Format (CSV, when re-enabled):
      sec,mode,toRH,fromRH,pump,heater
    ======================================================================== */
 
 #include "logging.h"
-#include <SD.h>
 
 Logger::Logger() : _ready(false) {}
 
 bool Logger::begin() {
-    // TODO: Initialize SD card here when wired
-    // Example:
-    //   if (!SD.begin(SD_CS_PIN)) return false;
-    _ready = false;  // Not available yet — stub
+    _ready = false;  // Disabled — no SD.begin() call.
     return false;
 }
 
@@ -25,23 +23,15 @@ void Logger::logRunning(uint32_t seconds, SystemMode mode,
                         float toRH, float toTemp, bool toValid,
                         float fromRH, float fromTemp, bool fromValid,
                         bool pumpOn, bool heaterOn) {
-    (void)seconds;
-    (void)mode;
-    (void)toRH;
-    (void)toTemp;
-    (void)toValid;
-    (void)fromRH;
-    (void)fromTemp;
-    (void)fromValid;
-    (void)pumpOn;
-    (void)heaterOn;
+    (void)seconds; (void)mode; (void)toRH; (void)toTemp; (void)toValid;
+    (void)fromRH; (void)fromTemp; (void)fromValid;
+    (void)pumpOn; (void)heaterOn;
     if (!_ready) return;
-    // TODO: Write CSV line to /hangar.csv
 }
 
 void Logger::logModeChange(SystemMode oldMode, SystemMode newMode) {
+    (void)oldMode; (void)newMode;
     if (!_ready) return;
-    // TODO: Log mode change event
 }
 
 // Global instance

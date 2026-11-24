@@ -181,9 +181,14 @@ class Handler(BaseHTTPRequestHandler):
             path = "/index.html"
         file_path = (ROOT / path.lstrip("/")).resolve()
         if not str(file_path).startswith(str(ROOT)) or not file_path.is_file():
-            self.send_error(404)
-            return
-        kind = "text/html" if file_path.suffix == ".html" else "text/plain"
+            # If requesting CSV or log file from root workspace
+            ws_path = (ROOT.parent / path.lstrip("/")).resolve()
+            if ws_path.is_file() and ws_path.suffix == ".csv":
+                file_path = ws_path
+            else:
+                self.send_error(404)
+                return
+        kind = "text/html" if file_path.suffix == ".html" else "text/csv" if file_path.suffix == ".csv" else "text/plain"
         body = file_path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", kind)

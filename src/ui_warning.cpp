@@ -15,8 +15,10 @@ static lv_obj_t* warningAltBtn = nullptr;
 static lv_obj_t* warningAltLabel = nullptr;
 static lv_event_cb_t warningContinueCallback = nullptr;
 static lv_event_cb_t warningAltCallback = nullptr;
+static bool warningActive = false;  // true from the moment a message is shown until OK is pressed
 
 static void cbContinue(lv_event_t* e) {
+    warningActive = false;
     lv_event_cb_t callback = warningContinueCallback;
     warningContinueCallback = nullptr;
     warningAltCallback = nullptr;
@@ -25,6 +27,7 @@ static void cbContinue(lv_event_t* e) {
 }
 
 static void cbAlternate(lv_event_t* e) {
+    warningActive = false;
     lv_event_cb_t callback = warningAltCallback;
     warningContinueCallback = nullptr;
     warningAltCallback = nullptr;
@@ -46,6 +49,8 @@ static void layoutWarningButtons(bool twoButtons) {
 }
 
 void uiShowWarning(const char* message, lv_event_cb_t onContinue, const char* buttonText) {
+    warningActive = true;
+    uiLogoHide();  // the message replaces whatever is showing, including the logo
     if (warningScreen == nullptr) {
         warningScreen = lv_obj_create(nullptr);
         lv_obj_set_style_bg_color(warningScreen, lv_color_hex(UI_BG_COLOR), 0);
@@ -103,4 +108,8 @@ void uiShowChoice(const char* message,
     lv_obj_center(warningAltLabel);
     warningAltCallback = onRight;
     layoutWarningButtons(true);
+}
+
+bool uiWarningActive() {
+    return warningActive;
 }

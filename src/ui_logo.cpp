@@ -38,6 +38,12 @@ bool uiLogoVisible() {
     return logoVisible;
 }
 
+// A warning replaced the logo. Forget the logo so the idle logo can come back later.
+void uiLogoHide() {
+    bootSplash = false;
+    logoVisible = false;
+}
+
 void uiLogoTick() {
     if (logoVisible) {
         if (bootSplash && millis() - splashShownAt >= 3500UL) {
@@ -45,6 +51,7 @@ void uiLogoTick() {
         }
         return;
     }
+    if (uiWarningActive()) return;  // a message is waiting for OK; never cover it
     if (stateMachine.isRunning()) return;
     if (millis() < 20000UL) return;
     const uint32_t touched = displayLastTouchMs();

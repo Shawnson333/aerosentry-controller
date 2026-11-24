@@ -56,10 +56,11 @@ void setup() {
         Serial.println(F("Sensor receiver not available yet (ESP-NOW stub)"));
     }
 
+    // SD logger disabled for now (no card / wrong pins). Do not call SD.begin().
     if (logger.begin()) {
         Serial.println(F("SD logger ready"));
     } else {
-        Serial.println(F("SD logger not available yet (stub)"));
+        Serial.println(F("SD logger disabled"));
     }
 
     systemClockBegin();

@@ -39,7 +39,8 @@ enum class StopReason {
     THERMAL,
     VALVE_SUSPECT,
     VALVE_NO_CURRENT,
-    SAFETY_FAILED
+    SAFETY_FAILED,
+    HEATUP_TIMEOUT
 };
 
 struct ModeConfig {
@@ -77,6 +78,13 @@ public:
 
     /* Phase line for the main screen. Valid until the next call. */
     const char* statusText() const;
+    int32_t ventBaseline() const;
+    bool ventBaselineValid() const;
+    int32_t ventPulsePeak() const;
+    bool ventPulseHit() const;
+    uint32_t ventAmbientCount() const;
+    uint8_t ventGoodPulses() const;
+    uint8_t ventBadPulses() const;
     bool purgeRecent() const;
     uint32_t purgeAgeMs() const;
     bool hasPurgeRecord() const { return _purgeSeen; }
@@ -118,11 +126,22 @@ private:
     bool _rechargeFailure;          // true while running the failure cool down
     StopReason _rechargeFailureReason;
     bool _chamberReachedTarget;     // Arms the valve verification after real heat-up
+    uint32_t _chamberReachedMs;     // millis() when the chamber first reached target; starts the long-pulse hour
+    bool _rechargeTimedOut;         // Max run time reached: cool down and safety check, then stop
+    bool _sensorLost;               // Required sensors are missing right now (grace timer running)
+    uint32_t _sensorLostSinceMs;    // millis() when they went missing
     int32_t _ventBaseline;          // Idle vent pressure, learned while the pump is off
     bool _ventBaselineValid;
     uint32_t _ventLearnStartMs;
     uint8_t _ventGoodPulses;        // Pulses that showed the expected pressure step
     uint8_t _ventBadPulses;         // Pulses that showed no step
+    // Ambient averaging (2026-11-20): running average of pump-OFF samples.
+    // Re-learned every recharge; drift is tracked between pulses.
+    double _ventAmbientSum;
+    uint32_t _ventAmbientCount;
+    uint32_t _ventLastSampleMs;
+    int32_t _ventPulsePeak;         // Max raw seen during the current 10 s pulse
+    bool _ventPulseHit;            // Peak reached baseline + 20,000 during this pulse
     uint8_t _pulseCount;            // Recharge pulses completed, used for the first-pulse flush
     float _valveBaselineRH;         // From-Engine baseline, set after the flush pulse
     uint8_t _valvePulseCount;       // End-of-pulse samples judged since recharge started

@@ -30,6 +30,10 @@ void uiShowChoice(const char* message,
 void uiShowLogo();
 bool uiLogoVisible();
 void uiLogoTick();
+void uiLogoHide();
+/* True while a warning or fault message is on screen waiting for OK. The idle logo
+   must not replace it. */
+bool uiWarningActive();
 void uiShowAdmin();
 bool uiAdminVisible();
 void uiUpdateAdmin();

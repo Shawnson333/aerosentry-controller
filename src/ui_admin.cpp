@@ -114,14 +114,25 @@ void uiUpdateAdmin() {
     const float chip = stateMachine.chipTempC();
     if (chip == chip) snprintf(chipText, sizeof(chipText), "%.0fC", chip);
 
-    char pressure[32] = "--";
+    char pressure[48] = "--";
+    char pressureAvg[48] = "--";
     if (sensors.pressureValid) {
         snprintf(pressure, sizeof(pressure), "%ld raw", (long)sensors.ventPressureRaw);
+        if (stateMachine.ventBaselineValid()) {
+            const long step = (long)stateMachine.ventPulsePeak() - (long)stateMachine.ventBaseline();
+            snprintf(pressureAvg, sizeof(pressureAvg), "avg %ld peak %ld step %ld %s",
+                     (long)stateMachine.ventBaseline(), (long)stateMachine.ventPulsePeak(),
+                     step, step >= VENT_PRESSURE_MIN_STEP ? "OK" : "NO FLOW");
+        } else {
+            snprintf(pressureAvg, sizeof(pressureAvg), "avg learning n=%lu",
+                     (unsigned long)stateMachine.ventAmbientCount());
+        }
     } else {
         snprintf(pressure, sizeof(pressure), "no sensor");
+        snprintf(pressureAvg, sizeof(pressureAvg), "avg n/a");
     }
 
-    char body[560];
+    char body[720];
     snprintf(body, sizeof(body),
              "To-Engine   %s   %s\n"
              "From-Engine %s   %s\n"
@@ -129,8 +140,11 @@ void uiUpdateAdmin() {
              "Chip        %s\n"
              "Relays      %s\n"
              "Vent press  %s\n"
+             "Vent avg    %s\n"
+             "Pulses      good %u bad %u\n"
              "Last purge  %s\n"
              "K1 aux 12V, K2 pump, K3 heat, K4 fan, K5/K6 valves, K7/K8 aux.",
-             toRh, toF, fromRh, fromF, chamber, chipText, relays, pressure, purge);
+             toRh, toF, fromRh, fromF, chamber, chipText, relays, pressure, pressureAvg,
+             stateMachine.ventGoodPulses(), stateMachine.ventBadPulses(), purge);
     lv_label_set_text(adminBody, body);
 }

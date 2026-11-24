@@ -29,16 +29,21 @@ static bool ageOk(uint32_t maxAgeMs) {
     return (millis() - sensors.timestamp) <= maxAgeMs;
 }
 
+static bool humidityReady(bool validFlag, uint32_t timestamp) {
+    return sensorPacketFresh() && validFlag &&
+           timestamp != 0 && (millis() - timestamp) <= SAMPLE_MAX_AGE_MS;
+}
+
 bool sensorPacketFresh() {
     return ageOk(SENSOR_STALE_MS);
 }
 
 bool toEngineReady() {
-    return sensorPacketFresh() && sensors.toValid;
+    return sensorPacketFresh() && humidityReady(sensors.toValid, sensors.toTimestamp);
 }
 
 bool fromEngineReady() {
-    return sensorPacketFresh() && sensors.fromValid;
+    return sensorPacketFresh() && humidityReady(sensors.fromValid, sensors.fromTimestamp);
 }
 
 bool chamberReady() {
@@ -154,10 +159,12 @@ bool sensorsUpdate() {
     if (sensors.toValid) {
         sensors.toEngineRH = fromCenti(packet.toEngineRhCenti);
         sensors.toEngineTemp = fromCenti(packet.toEngineTempCenti);
+        sensors.toTimestamp = millis();
     }
     if (sensors.fromValid) {
         sensors.fromEngineRH = fromCenti(packet.fromEngineRhCenti);
         sensors.fromEngineTemp = fromCenti(packet.fromEngineTempCenti);
+        sensors.fromTimestamp = millis();
     }
     if (sensors.chamberValid) {
         sensors.chamberTemp = fromCenti(packet.chamberTempCenti);

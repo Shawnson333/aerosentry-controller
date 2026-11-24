@@ -23,29 +23,78 @@
   <main>
     <h1>History</h1>
     <nav><a href="index.html">Controls</a><a href="history.html">History</a></nav>
-    <p class="banner">Sample drawing only. No hangar log has been recorded yet.</p>
+    <p class="banner" id="banner">Loading hangar log (/hangar.csv)...</p>
     <section class="card">
       <h2>Humidity</h2>
       <p class="legend"><span class="swatch" style="background:#00ff88"></span>To-Engine <span class="swatch" style="background:#7fd7ff"></span>From-Engine</p>
-      <svg id="humidity" viewBox="0 0 640 220" role="img" aria-label="Sample humidity chart"></svg>
+      <svg id="humidity" viewBox="0 0 640 220" role="img" aria-label="Humidity chart"></svg>
     </section>
     <section class="card">
       <h2>Chamber temperature</h2>
       <p class="legend"><span class="swatch" style="background:#ff4444"></span>Chamber, Fahrenheit</p>
-      <svg id="chamber" viewBox="0 0 640 220" role="img" aria-label="Sample chamber chart"></svg>
+      <svg id="chamber" viewBox="0 0 640 220" role="img" aria-label="Chamber temperature chart"></svg>
     </section>
   </main>
   <script>
-    const hours = Array.from({length: 24}, (_, i) => i);
-    const to = hours.map(h => 52 - h * 0.8 + Math.sin(h / 3) * 2);
-    const from = hours.map(h => 49 - h * 0.55 + Math.cos(h / 4) * 1.5);
-    const chamber = hours.map(h => h < 16 ? 74 + h * 0.4 : 80 + (h - 16) * 18);
+    async function loadHistory() {
+      const banner = document.getElementById("banner");
+      try {
+        const res = await fetch("/hangar.csv");
+        if (!res.ok) throw new Error("No log found");
+        const text = await res.text();
+        const lines = text.trim().split("\n");
+        if (lines.length <= 1) {
+          banner.textContent = "Hangar log is empty (/hangar.csv). Showing sample view.";
+          drawSample();
+          return;
+        }
+        banner.textContent = `Loaded ${lines.length - 1} records from /hangar.csv`;
+        
+        const rows = lines.slice(1).map(l => {
+          const parts = l.split(",");
+          return {
+            sec: Number(parts[0]),
+            mode: parts[1],
+            toRH: parts[2] ? Number(parts[2]) : null,
+            toTemp: parts[3] ? Number(parts[3]) : null,
+            fromRH: parts[4] ? Number(parts[4]) : null,
+            fromTemp: parts[5] ? Number(parts[5]) : null
+          };
+        }).filter(r => !isNaN(r.sec));
+
+        if (rows.length === 0) {
+          drawSample();
+          return;
+        }
+
+        const times = rows.map(r => r.sec);
+        const toRHs = rows.map(r => r.toRH ?? 0);
+        const fromRHs = rows.map(r => r.fromRH ?? 0);
+        const chambers = rows.map(r => r.toTemp ?? 70); // fallback or use temperature
+
+        chart("humidity", [{values: toRHs, color: "#00ff88"}, {values: fromRHs, color: "#7fd7ff"}], 0, 100);
+        chart("chamber", [{values: chambers, color: "#ff4444"}], 50, 250);
+      } catch (err) {
+        banner.textContent = "Could not load /hangar.csv from controller. Showing sample view.";
+        drawSample();
+      }
+    }
+
+    function drawSample() {
+      const hours = Array.from({length: 24}, (_, i) => i);
+      const to = hours.map(h => 52 - h * 0.8 + Math.sin(h / 3) * 2);
+      const from = hours.map(h => 49 - h * 0.55 + Math.cos(h / 4) * 1.5);
+      const chamber = hours.map(h => h < 16 ? 74 + h * 0.4 : 80 + (h - 16) * 18);
+      chart("humidity", [{values: to, color: "#00ff88"}, {values: from, color: "#7fd7ff"}], 20, 60);
+      chart("chamber", [{values: chamber, color: "#ff4444"}], 60, 240);
+    }
 
     function chart(id, series, min, max) {
       const svg = document.getElementById(id);
       const left = 36, right = 620, top = 16, bottom = 190;
-      const x = i => left + (i / 23) * (right - left);
-      const y = v => bottom - ((v - min) / (max - min)) * (bottom - top);
+      const count = Math.max(2, ...series.map(s => s.values.length));
+      const x = i => left + (i / (count - 1)) * (right - left);
+      const y = v => bottom - ((v - min) / (max - min || 1)) * (bottom - top);
       let marks = "";
       for (let tick = min; tick <= max; tick += (max - min) / 4) {
         const yy = y(tick);
@@ -53,13 +102,15 @@
         marks += `<text x="4" y="${yy + 4}" fill="#9fb0c7" font-size="12">${Math.round(tick)}</text>`;
       }
       const paths = series.map(item => {
-        const d = item.values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+        const vals = item.values;
+        if (!vals.length) return "";
+        const d = vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
         return `<path d="${d}" fill="none" stroke="${item.color}" stroke-width="2.5"/>`;
       }).join("");
       svg.innerHTML = marks + paths;
     }
-    chart("humidity", [{values: to, color: "#00ff88"}, {values: from, color: "#7fd7ff"}], 20, 60);
-    chart("chamber", [{values: chamber, color: "#ff4444"}], 60, 240);
+
+    loadHistory();
   </script>
 </body>
 </html>

@@ -19,6 +19,8 @@ struct SensorReading {
     int32_t ventPressureRaw; // raw counts from the vent pressure module
     bool pressureValid;      // true when the pressure module reported a good reading
     uint32_t timestamp;        // millis() when the last packet arrived
+    uint32_t toTimestamp;      // millis() when the last valid To-Engine sample arrived
+    uint32_t fromTimestamp;    // millis() when the last valid From-Engine sample arrived
     uint32_t chamberTimestamp; // millis() when the last valid chamber sample arrived
     bool toValid;
     bool fromValid;

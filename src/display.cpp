@@ -196,8 +196,10 @@ bool displayHardwareBegin() {
 
 void displayWritePixels(int x1, int y1, int x2, int y2, const void *colorData) {
     if (lcdPanel == nullptr) return;
-    /* Small updates, such as the clock minute, tear if they are copied while
-       the RGB scan is in that region. Start those copies just after a frame. */
+    /* Restore the bench-2026-11-18 behaviour exactly. Small updates tear if
+       copied while the RGB scan is in that region, so start them just after
+       a frame. Large windows (screen changes) were not gated in the good build
+       and gated syncs made them worse, so they stay ungated here too. */
     if ((x2 - x1) < 400 && (y2 - y1) < 80) {
         frameDone = false;
         const uint32_t start = millis();
