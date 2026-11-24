@@ -34,6 +34,7 @@
    DOUT reads the data line, SCK the clock. */
 #define PRESSURE_DOUT_PIN 48
 #define PRESSURE_SCK_PIN  47
+#define PRESSURE_READY_TIMEOUT_MS 150UL  // 10 samples/s: a conversion is ready within 100 ms
 
 #define SEND_INTERVAL_MS    1000UL
 

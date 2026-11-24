@@ -14,8 +14,8 @@
 static TwoWire toBus = TwoWire(0);
 static TwoWire fromBus = TwoWire(1);
 static HX711 pressureScale;
-static bool pressureReady = false;
 static int32_t pressureRaw = 0;
+static uint32_t pressureMisses = 0;
 static uint32_t sequenceNumber = 0;
 static bool radioReady = false;
 static int chamberMillivolts = -1;
@@ -130,17 +130,20 @@ static void readValveCurrent() {
    line is pressurised. The absolute number depends on the module and the
    plumbing, so the Waveshare learns its own baseline and judges the step.
    A failed read is reported as not-valid rather than as a zero.
-   The HX711 API: begin() returns void, read() blocks until data is ready and
-   returns the raw count. */
+
+   Readiness is checked on every read (2026-11-24). It used to be checked once
+   at boot and latched: after a reset the HX711 is still waking up (SCK floats
+   high during the ESP32 reset, which powers it down), so that one check could
+   fail and the node then reported no pressure until a lucky reboot. The
+   controller now refuses a recharge without pressure, which exposed it. At
+   10 samples/s a new conversion is ready within 100 ms, so wait up to
+   PRESSURE_READY_TIMEOUT_MS for it. */
 static bool readPressure(int32_t &raw) {
-    if (!pressureReady) return false;
-    if (!pressureScale.is_ready()) {
-        pressureScale.begin(PRESSURE_DOUT_PIN, PRESSURE_SCK_PIN);
-        pressureReady = pressureScale.is_ready();
-        if (!pressureReady) return false;
+    if (!pressureScale.wait_ready_timeout(PRESSURE_READY_TIMEOUT_MS, 1)) {
+        pressureMisses++;
+        return false;
     }
-    const long value = pressureScale.read();
-    raw = (int32_t)value;
+    raw = (int32_t)pressureScale.read();
     return true;
 }
 
@@ -176,10 +179,10 @@ void setup() {
     analogSetPinAttenuation(VALVE_SHUNT_ADC_PIN, ADC_11db);
 
     pressureScale.begin(PRESSURE_DOUT_PIN, PRESSURE_SCK_PIN);
-    pressureReady = pressureScale.is_ready();
+    const bool pressureUp = pressureScale.wait_ready_timeout(1000, 1);  // first conversion after power-up
     Serial.printf("Vent pressure DOUT %d SCK %d %s\n",
                   PRESSURE_DOUT_PIN, PRESSURE_SCK_PIN,
-                  pressureReady ? "ready" : "NOT READY");
+                  pressureUp ? "ready" : "NOT READY (retried on every read)");
 
     radioReady = radioBegin();
     Serial.printf("Channel %d  MAC %s  %s\n",
@@ -238,13 +241,13 @@ void loop() {
             if (esp_now_send(broadcast, (uint8_t *)&packet, sizeof(packet)) == ESP_OK) sent++;
         }
     }
-    Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d valveMv %d pressRaw %ld stable %u faults %u sent %d\n",
+    Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d valveMv %d pressRaw %ld pressMiss %lu stable %u faults %u sent %d\n",
                   (unsigned long)millis(), (unsigned long)packet.sequence, packet.flags,
                   (packet.flags & SENSOR_FLAG_TO_VALID) ? toHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_FROM_VALID) ? fromHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_CHAMBER_VALID) ? tempC : -1.0f,
                   chamberMillivolts, chamberSpread, valveMillivolts,
-                  (long)pressureRaw,
+                  (long)pressureRaw, (unsigned long)pressureMisses,
                   chamberStable, chamberFaults, sent);
     delay(SEND_INTERVAL_MS);
 }
