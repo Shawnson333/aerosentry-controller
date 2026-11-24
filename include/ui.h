@@ -37,6 +37,9 @@ bool uiWarningActive();
 void uiShowAdmin();
 bool uiAdminVisible();
 void uiUpdateAdmin();
+void uiShowRelayTest();
+bool uiRelayTestVisible();
+void uiUpdateRelayTest();
 void uiSetDiagnosticsVisible(bool visible);
 bool uiDiagnosticsVisible();
 

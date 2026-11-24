@@ -59,6 +59,10 @@ void setup() {
         relay.begin();
     }
 
+    char devices[96];
+    RelayDriver::scanBus(devices, sizeof(devices));
+    Serial.printf("I2C devices: %s\n", devices);
+
     if (sensorsBegin()) {
         Serial.println(F("Sensor receiver ready"));
     } else {
@@ -99,6 +103,7 @@ void setup() {
 void loop() {
     const uint32_t loopStart = millis();
     sensorsUpdate();
+    relay.update();  // ends an Admin relay test pulse on time
     radioLinkUpdate();
     stateMachine.update();
 
@@ -115,6 +120,7 @@ void loop() {
                             stateMachine.fanOn(), stateMachine.valveOpen(),
                             stateMachine.chipTempC());
             if (uiAdminVisible()) uiUpdateAdmin();
+            if (uiRelayTestVisible()) uiUpdateRelayTest();
             systemClockSave();
             lastUiTick = millis();
         }

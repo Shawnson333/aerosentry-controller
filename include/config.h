@@ -190,8 +190,12 @@
 #define CASE_FAN_CHIP_ON_C      65.0f
 #define CASE_FAN_CHIP_OFF_C     55.0f
 
+/* --- Relay test (Admin > Relay test), bench diagnostic for the K1 question --- */
+#define RELAY_TEST_PULSE_MS     2000UL  // One pin is driven this long, then everything returns to normal
+
 /* --- UI Colors (dark theme) --- */
 #define UI_BG_COLOR         0x0A1628  // Deep navy background
+#define UI_PANEL_COLOR      0x1A2E4A  // Secondary buttons, panels
 #define UI_ACCENT_COLOR     0x00FF88  // Green accent
 #define UI_WARN_COLOR       0xFF4444  // Red for warnings/stop
 #define UI_TEXT_COLOR       0xFFFFFF  // White text

@@ -19,6 +19,12 @@ static void cbAdminBack(lv_event_t* e) {
     uiShowMain();
 }
 
+static void cbRelayTest(lv_event_t* e) {
+    (void)e;
+    adminVisible = false;
+    uiShowRelayTest();
+}
+
 static void cbToggleDiag(lv_event_t* e) {
     (void)e;
     diagnosticsVisible = !diagnosticsVisible;
@@ -57,6 +63,16 @@ void uiShowAdmin() {
         lv_label_set_text(adminDiagBtnLabel, "Hide main diag line");
         lv_obj_center(adminDiagBtnLabel);
         lv_obj_set_style_text_font(adminDiagBtnLabel, &lv_font_montserrat_20, 0);
+
+        lv_obj_t* relayBtn = lv_btn_create(adminScreen);
+        lv_obj_set_size(relayBtn, 180, 60);
+        lv_obj_align(relayBtn, LV_ALIGN_BOTTOM_MID, 20, -24);
+        lv_obj_set_style_bg_color(relayBtn, lv_color_hex(UI_PANEL_COLOR), 0);
+        lv_obj_add_event_cb(relayBtn, cbRelayTest, LV_EVENT_CLICKED, nullptr);
+        lv_obj_t* relayLabel = lv_label_create(relayBtn);
+        lv_label_set_text(relayLabel, "Relay test");
+        lv_obj_center(relayLabel);
+        lv_obj_set_style_text_font(relayLabel, &lv_font_montserrat_20, 0);
 
         lv_obj_t* back = lv_btn_create(adminScreen);
         lv_obj_set_size(back, 180, 60);

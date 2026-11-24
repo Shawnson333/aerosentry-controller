@@ -19,7 +19,8 @@
 #include <Wire.h>
 
 RelayDriver::RelayDriver()
-    : _addr(XL9535_ADDR), _state(0x00), _initialized(false) {}
+    : _addr(XL9535_ADDR), _state(0x00), _initialized(false),
+      _testActive(false), _testStartMs(0), _testMs(0) {}
 
 bool RelayDriver::begin() {
 #if !RELAY_DRIVER_ENABLED
@@ -80,15 +81,41 @@ void RelayDriver::auxAc2Off() { setChannel(RELAY_BIT_AUX_AC2, false); }
 
 void RelayDriver::allOff() {
     if (!_initialized) return;
+    _testActive = false;
     _state = 0x00;
     applyState();
 }
 
-void RelayDriver::setTestOutputs(uint8_t port0, uint8_t port1) {
-    (void)port1;
-    if (!_initialized) return;
-    _state = port0 & RELAY_ALLOWED_MASK;
-    applyState();
+bool RelayDriver::testPulseStart(uint8_t port, uint8_t bit, uint32_t ms) {
+    if (!_initialized || port > 1 || bit > 7 || _testActive) return false;
+    const uint8_t mask = (uint8_t)(1u << bit);
+    _testActive = true;
+    _testStartMs = millis();
+    _testMs = ms;
+    Serial.printf("Relay test: P%u.%u high for %lu ms\n", port, bit, (unsigned long)ms);
+    writePair(0x02, port == 0 ? mask : 0x00, port == 1 ? mask : 0x00);
+    return true;
+}
+
+void RelayDriver::update() {
+    if (!_testActive || millis() - _testStartMs < _testMs) return;
+    _testActive = false;
+    applyState();  // back to the cycle outputs (all off while idle)
+    Serial.println(F("Relay test: pulse ended"));
+}
+
+void RelayDriver::scanBus(char *out, size_t size) {
+    if (out == nullptr || size == 0) return;
+    size_t used = 0;
+    out[0] = '\0';
+    for (uint8_t address = 0x08; address < 0x78; ++address) {
+        Wire.beginTransmission(address);
+        if (Wire.endTransmission() != 0) continue;
+        const int written = snprintf(out + used, size - used, "%s0x%02X", used ? " " : "", address);
+        if (written < 0 || (size_t)written >= size - used) break;
+        used += (size_t)written;
+    }
+    if (used == 0) snprintf(out, size, "none");
 }
 
 bool RelayDriver::readPair(uint8_t reg, uint8_t &port0, uint8_t &port1) {
@@ -99,21 +126,6 @@ bool RelayDriver::readPair(uint8_t reg, uint8_t &port0, uint8_t &port1) {
     port0 = Wire.read();
     port1 = Wire.read();
     return true;
-}
-
-void RelayDriver::printDiagnostics() {
-    const uint8_t regs[] = {0x00, 0x02, 0x04, 0x06};
-    const char* names[] = {"input", "output", "polarity", "config"};
-    for (uint8_t i = 0; i < 4; ++i) {
-        Wire.beginTransmission(_addr);
-        Wire.write(regs[i]);
-        if (Wire.endTransmission(false) != 0) continue;
-        if (Wire.requestFrom(_addr, (uint8_t)2) != 2) continue;
-        const uint8_t port0 = Wire.read();
-        const uint8_t port1 = Wire.read();
-        Serial.printf("XL9535 %s port0=0x%02X port1=0x%02X\n",
-                      names[i], port0, port1);
-    }
 }
 
 bool RelayDriver::writePairChecked(uint8_t reg, uint8_t port0, uint8_t port1) {

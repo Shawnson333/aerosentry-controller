@@ -402,6 +402,7 @@ const char* StateMachine::startBlockReason(Command cmd) const {
         return "Invalid start.";
     }
     if (_mode != SystemMode::IDLE) return "A cycle is already running.";
+    if (relay.testActive()) return "A relay test pulse is running.\nWait two seconds and try again.";
     float fahrenheit = NAN;
     if (thermalFault(fahrenheit) != StopReason::NONE) {
         return "Temperature is above the safety limit.\nLet the system cool and try again.";

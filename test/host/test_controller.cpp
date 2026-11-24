@@ -120,6 +120,7 @@ static void step(Plant& p, uint32_t dt) {
     }
     // One pass of loop().
     sensorsUpdate();
+    relay.update();
     radioLinkUpdate();
     stateMachine.update();
     // Invariants.
@@ -136,9 +137,11 @@ static void step(Plant& p, uint32_t dt) {
                   "I2 recharge pump on without a recent vent pressure reading");
     }
     if (valvesRelay()) invariant(mode == SystemMode::RECHARGE, "I3 valves energized outside recharge");
-    if (mode == SystemMode::IDLE) invariant(port0 == 0, "I4 relay on while idle");
-    invariant((port0 & ((1 << RELAY_BIT_AUX_12V) | (1 << RELAY_BIT_AUX_AC1) | (1 << RELAY_BIT_AUX_AC2))) == 0,
-              "I5 aux relay driven");
+    if (!relay.testActive()) {  // an Admin relay test pulse drives one pin on purpose
+        if (mode == SystemMode::IDLE) invariant(port0 == 0, "I4 relay on while idle");
+        invariant((port0 & ((1 << RELAY_BIT_AUX_12V) | (1 << RELAY_BIT_AUX_AC1) | (1 << RELAY_BIT_AUX_AC2))) == 0,
+                  "I5 aux relay driven");
+    }
     hostNowMs += dt;
 }
 
@@ -562,6 +565,28 @@ static void testLocalDryerArmsAutoRecharge() {
            "saturation did not start a recharge");
 }
 
+static void testRelayTestPulse() {
+    reset("Relay test drives exactly one pin for 2 s, blocks starts, then all off");
+    Plant p;
+    runFor(p, 5000);
+    EXPECT(relay.testPulseStart(0, 0, RELAY_TEST_PULSE_MS), "P0.0 pulse refused");
+    runFor(p, 100);
+    EXPECT(hostXl9535[2] == 0x01 && hostXl9535[3] == 0x00, "outputs %02X %02X, expected 01 00",
+           hostXl9535[2], hostXl9535[3]);
+    EXPECT((hostXl9535[0] & 0x01) == 0x01, "input register does not show P0.0 high");
+    const char* block = stateMachine.startBlockReason(Command::START_PURGE);
+    EXPECT(block != nullptr && strstr(block, "relay test") != nullptr, "start not blocked during a pulse");
+    EXPECT(!relay.testPulseStart(0, 1, RELAY_TEST_PULSE_MS), "second pulse accepted while one runs");
+    runFor(p, RELAY_TEST_PULSE_MS + 100);
+    EXPECT(hostXl9535[2] == 0x00 && hostXl9535[3] == 0x00, "outputs not cleared after the pulse");
+    EXPECT(relay.testPulseStart(1, 0, RELAY_TEST_PULSE_MS), "P1.0 pulse refused");
+    runFor(p, 100);
+    EXPECT(hostXl9535[2] == 0x00 && hostXl9535[3] == 0x01, "P1.0 pulse wrote %02X %02X",
+           hostXl9535[2], hostXl9535[3]);
+    runFor(p, RELAY_TEST_PULSE_MS + 100);
+    EXPECT(hostXl9535[3] == 0x00, "port 1 not cleared");
+}
+
 static void testRestartReport() {
     reset("Restart during a cycle: S18 message names the cycle and the cause");
     stateMachine.reportRestart(SystemMode::RECHARGE, "The controller froze and the watchdog restarted it.");
@@ -596,6 +621,7 @@ int main(int argc, char** argv) {
     testRemoteDryerNeverArmsAutoRecharge();
     testRemoteCannotChangeAutoRechargeSetting();
     testLocalDryerArmsAutoRecharge();
+    testRelayTestPulse();
     testRestartReport();
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

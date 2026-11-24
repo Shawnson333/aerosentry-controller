@@ -45,18 +45,34 @@ public:
     void auxAc2On();
     void auxAc2Off();
 
-    /* Emergency stop: turn everything OFF */
+    /* Emergency stop: turn everything OFF (also ends a relay test pulse) */
     void allOff();
 
-    /* Diagnostic: write both output ports while identifying relay mapping. */
-    void setTestOutputs(uint8_t port0, uint8_t port1);
-    void printDiagnostics();
+    /* Bench diagnostic for the K1 investigation (2026-11-24). Drives ONE pin
+       of either port (port 0 or 1, bit 0-7) high for ms, then restores the
+       cycle outputs. Bypasses RELAY_ALLOWED_MASK on purpose so P0.0 (K1) and
+       every P1 pin can be checked. The caller must only use it while idle;
+       starts are refused while a pulse is active. */
+    bool testPulseStart(uint8_t port, uint8_t bit, uint32_t ms);
+    bool testActive() const { return _testActive; }
+    /* Ends a test pulse when its time is up. Call every loop. */
+    void update();
+
+    /* Read one register pair: 0x00 input (actual pin levels), 0x02 output,
+       0x04 polarity, 0x06 config (0 = output). */
     bool readPair(uint8_t reg, uint8_t &port0, uint8_t &port1);
+
+    /* List the 7-bit addresses that ACK on the shared I2C bus, e.g.
+       "0x21 0x24 0x38 0x5D 0x68". Takes about 30 ms. */
+    static void scanBus(char *out, size_t size);
 
 private:
     uint8_t _addr;
     uint8_t _state;   // Bit mask of which relays are ON
     bool _initialized;
+    bool _testActive;
+    uint32_t _testStartMs;
+    uint32_t _testMs;
 
     bool writePairChecked(uint8_t reg, uint8_t port0, uint8_t port1);
     void writePair(uint8_t reg, uint8_t port0, uint8_t port1);
