@@ -602,6 +602,10 @@ static void testRestartReport() {
     std::string m = takeMessage();
     EXPECT(m.find("Recharge ended. Code S18") != std::string::npos, "message: %s", m.c_str());
     EXPECT(m.find("watchdog") != std::string::npos, "cause missing: %s", m.c_str());
+    stateMachine.reportRestart(SystemMode::IDLE, "The controller crashed and restarted.");
+    m = takeMessage();
+    EXPECT(m.find("Code S18") != std::string::npos && m.find("ended") == std::string::npos,
+           "idle restart message: %s", m.c_str());
 }
 
 int main(int argc, char** argv) {

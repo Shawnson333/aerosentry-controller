@@ -24,6 +24,19 @@ const char* runStateResetCause() {
     }
 }
 
+bool runStateUnexpectedReset() {
+    switch (resetReason) {
+        case ESP_RST_TASK_WDT:
+        case ESP_RST_INT_WDT:
+        case ESP_RST_WDT:
+        case ESP_RST_PANIC:
+        case ESP_RST_BROWNOUT:
+            return true;
+        default:
+            return false;
+    }
+}
+
 SystemMode runStateBegin() {
     resetReason = esp_reset_reason();
     storeOpen = runStore.begin("aerorun", false);

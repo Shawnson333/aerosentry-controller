@@ -49,6 +49,29 @@ static void cbBack(lv_event_t* e) {
     uiShowAdmin();
 }
 
+#if LOOP_WATCHDOG_ENABLED
+/* Freeze loop() on purpose. The task watchdog should reset the chip within
+   about 5 s, setup() turns every relay off, and the boot screen shows S18.
+   Run it during a Purge to see the pump relay drop after a hang. */
+static void cbWatchdogFreeze(lv_event_t* e) {
+    (void)e;
+    Serial.println(F("Watchdog test: loop() frozen on purpose"));
+    Serial.flush();
+    while (true) delay(100);  // loop() never returns, so the watchdog is never fed
+}
+
+static void cbWatchdogTest(lv_event_t* e) {
+    (void)e;
+    uiShowChoice("Watchdog test.\n"
+                 "The controller will freeze on purpose. The watchdog should\n"
+                 "restart it within about 5 s, every relay should switch off,\n"
+                 "and the boot screen should show code S18.\n"
+                 "Run it during a Purge to check that the pump switches off.",
+                 cbWatchdogFreeze, "Freeze now",
+                 [](lv_event_t*) { uiShowRelayTest(); }, "Back");
+}
+#endif
+
 static void cbRescan(lv_event_t* e) {
     (void)e;
     char found[96];
@@ -115,6 +138,10 @@ void uiShowRelayTest() {
         lv_obj_set_style_text_font(busLabel, &lv_font_montserrat_14, 0);
 
         makeButton(testScreen, 40, 400, 200, 60, "Scan I2C bus", cbRescan, 0, UI_PANEL_COLOR);
+#if LOOP_WATCHDOG_ENABLED
+        makeButton(testScreen, (DISPLAY_WIDTH - 200) / 2, 400, 200, 60, "Watchdog test", cbWatchdogTest, 0,
+                   UI_WARN_COLOR);
+#endif
         makeButton(testScreen, DISPLAY_WIDTH - 240, 400, 200, 60, "Back", cbBack, 0, UI_PANEL_COLOR);
     }
     lv_scr_load(testScreen);

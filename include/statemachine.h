@@ -61,7 +61,7 @@ enum class StopReason : uint8_t {
     SAFETY_FAILED      = 15,
     RECHARGE_COMPLETE  = 16,
     RECHARGE_MAX_TIME  = 17,
-    CONTROLLER_RESTART = 18,  // Power loss, watchdog or crash during a cycle (shown at boot)
+    CONTROLLER_RESTART = 18,  // Power loss during a cycle, or any watchdog / crash / brownout (shown at boot)
 };
 
 /* Stable upper-case name for a stop code, e.g. "VALVE_SUSPECT". */

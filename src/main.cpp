@@ -79,8 +79,9 @@ void setup() {
     systemClockBegin();
     const SystemMode interrupted = runStateBegin();
     stateMachine.begin();
-    if (interrupted != SystemMode::IDLE) {
-        // Shown by the first loop() pass like any other stop message.
+    if (interrupted != SystemMode::IDLE || runStateUnexpectedReset()) {
+        // Shown by the first loop() pass like any other stop message. A watchdog,
+        // crash or brownout reset is reported even when nothing was running.
         stateMachine.reportRestart(interrupted, runStateResetCause());
     }
     Serial.println(F("State machine ready - Idle mode"));

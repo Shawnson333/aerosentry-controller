@@ -22,6 +22,10 @@ SystemMode runStateBegin();
 /* One sentence for why the chip restarted, from esp_reset_reason(). */
 const char* runStateResetCause();
 
+/* True when the last reset was a watchdog, a crash or a brownout: worth
+   reporting even if no cycle was running. */
+bool runStateUnexpectedReset();
+
 /* Record the mode now running (IDLE when a cycle ends). Skips the write
    when the saved value already matches. */
 void runStateSave(SystemMode mode);

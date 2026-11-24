@@ -69,7 +69,7 @@ static const StopText STOP_TEXTS[] = {
     /* 15 */ {"SAFETY_FAILED",      "Safety check failed.",                    "The desiccant is still wet. Run another Recharge."},
     /* 16 */ {"RECHARGE_COMPLETE",  "Recharge complete.",                      nullptr},
     /* 17 */ {"RECHARGE_MAX_TIME",  "Recharge reached its time limit.",        "The desiccant may not be fully dry. Consider another Recharge."},
-    /* 18 */ {"CONTROLLER_RESTART", "Controller restarted during a cycle.",    "All outputs were off at restart. Check the unit before starting again."},
+    /* 18 */ {"CONTROLLER_RESTART", "Controller restarted unexpectedly.",      "All outputs were off at restart. Check the unit before starting again."},
 };
 
 static const StopText& stopText(StopReason reason) {
