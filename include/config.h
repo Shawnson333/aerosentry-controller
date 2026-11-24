@@ -9,6 +9,21 @@
    Change hardware settings in ONE place only.
    ======================================================================== */
 
+/* --- Firmware identity. Printed at boot and shown on the Admin page. --- */
+#define FIRMWARE_VERSION    "1.0.0-beta.1"
+
+/* --- Loop watchdog (2026-11-24) ---
+   The Arduino core already runs the ESP-IDF task watchdog (5 s, reset on
+   timeout), but only on the core 0 idle task. loop() runs on core 1 and was
+   not watched, so a hang (I2C lock-up, LVGL stall) could leave the heater
+   relay latched on in the XL9535 with only the 266 F fuse as protection.
+   1 = also watch loop(): if one pass takes longer than 5 s the chip resets,
+   setup() turns every relay off, and the boot screen reports code S18.
+   Sensor dropouts do not trip it: they are handled inside loop(), which
+   keeps running. The slowest loop pass since boot is shown on the Admin
+   page ("Loop max") so the margin can be checked on the bench. */
+#define LOOP_WATCHDOG_ENABLED   1
+
 /* --- I2C Bus (shared by display + relay expander + RTC) --- */
 #define I2C_SDA_PIN     8
 #define I2C_SCL_PIN     9

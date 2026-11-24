@@ -8,6 +8,7 @@
 #include "relay.h"
 #include "logging.h"
 #include "system_clock.h"
+#include "run_state.h"
 
 static float celsiusToFahrenheit(float celsius) {
     return celsius * 9.0f / 5.0f + 32.0f;
@@ -431,6 +432,16 @@ bool StateMachine::command(Command cmd) {
     return true;
 }
 
+void StateMachine::reportRestart(SystemMode interrupted, const char* cause) {
+    _stopReason = StopReason::CONTROLLER_RESTART;
+    formatStopMessage(_stopText, sizeof(_stopText), StopReason::CONTROLLER_RESTART,
+                      interrupted, cause, false);
+    _stopMessage = _stopText;
+    printStopLine(StopReason::CONTROLLER_RESTART, interrupted, _stopMessage);
+    logger.logStop((uint8_t)StopReason::CONTROLLER_RESTART,
+                   stopReasonName(StopReason::CONTROLLER_RESTART), interrupted, _stopMessage);
+}
+
 const char* StateMachine::takeStopMessage() {
     const char* message = _stopMessage;
     _stopReason = StopReason::NONE;
@@ -505,6 +516,7 @@ void StateMachine::enterMode(SystemMode newMode) {
             break;
     }
     logger.logModeChange(oldMode, newMode);
+    runStateSave(newMode);
     Serial.print(F("Mode -> "));
     Serial.println(systemModeName(newMode));
 }
@@ -552,6 +564,7 @@ void StateMachine::stopWith(StopReason reason, const char* detail, bool afterCoo
         _stopMessage = _stopText;
     }
     logger.logModeChange(oldMode, SystemMode::IDLE);
+    runStateSave(SystemMode::IDLE);
     printStopLine(reason, oldMode, _stopMessage);
     logger.logStop((uint8_t)reason, stopReasonName(reason), oldMode, _stopMessage);
 }

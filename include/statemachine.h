@@ -88,6 +88,10 @@ public:
     /* Warning text for a non-user stop, or nullptr. Clears the reason. */
     const char* takeStopMessage();
 
+    /* Boot only: a cycle was running when the controller restarted. Queues
+       the S18 message for the screen and logs it like any other stop. */
+    void reportRestart(SystemMode interrupted, const char* cause);
+
     SystemMode mode() const { return _mode; }
     bool isRunning() const { return _mode != SystemMode::IDLE; }
     bool pumpOn() const { return _pumpOn; }

@@ -15,8 +15,12 @@
 #include "ui.h"
 #include "lvgl_v8_port.h"
 #include "radio_link.h"
+#include "run_state.h"
 
 static bool lvglReady = false;
+static uint32_t loopMaxMs = 0;  // Slowest loop() pass since boot, for the watchdog margin
+
+uint32_t mainLoopMaxMs() { return loopMaxMs; }
 
 static void initializeDisplay() {
     Serial.println(F("Initializing Waveshare display and touch..."));
@@ -30,15 +34,20 @@ static void initializeDisplay() {
 
 void setup() {
     Serial.begin(115200);
+
+    // Relays first. The XL9535 keeps its outputs through an ESP32 reset, so after
+    // a watchdog or crash restart the heater could still be latched on. Turn every
+    // relay off before anything else, including the 1 s wait for the USB console.
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    const bool relaysOk = relay.begin();
+
     delay(1000);
     Serial.println(F("\n=== AeroSentry Controller Starting ==="));
-
-    // Shared I2C: GT911 touch + CH422G + XL9535 relays + DS3231M RTC.
-    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    Serial.printf("Firmware %s, built %s %s\n", FIRMWARE_VERSION, __DATE__, __TIME__);
     Serial.println(F("I2C bus initialized (GPIO 8/9)"));
 
     // XL9535 at 0x21. All eight channels are enabled. Active outputs start off.
-    if (relay.begin()) {
+    if (relaysOk) {
         Serial.println(F("Relay driver OK - all relays OFF"));
     } else {
         Serial.println(F("Relay driver disabled/unavailable; no relay writes made"));
@@ -64,7 +73,12 @@ void setup() {
     }
 
     systemClockBegin();
+    const SystemMode interrupted = runStateBegin();
     stateMachine.begin();
+    if (interrupted != SystemMode::IDLE) {
+        // Shown by the first loop() pass like any other stop message.
+        stateMachine.reportRestart(interrupted, runStateResetCause());
+    }
     Serial.println(F("State machine ready - Idle mode"));
     Serial.println(F("Rules: purge/manual watch To-Engine; auto watches both; recharge ignores 40%"));
 
@@ -75,10 +89,15 @@ void setup() {
         Serial.println(F("UI skipped because display initialization failed"));
     }
 
+#if LOOP_WATCHDOG_ENABLED
+    enableLoopWDT();
+    Serial.println(F("Loop watchdog on (5 s)"));
+#endif
     Serial.println(F("=== Setup complete ==="));
 }
 
 void loop() {
+    const uint32_t loopStart = millis();
     sensorsUpdate();
     radioLinkUpdate();
     stateMachine.update();
@@ -117,5 +136,10 @@ void loop() {
     }
 
     uiLoop();
+    const uint32_t loopMs = millis() - loopStart;
+    if (loopMs > loopMaxMs) {
+        loopMaxMs = loopMs;
+        if (loopMs >= 250UL) Serial.printf("Slow loop pass: %lu ms\n", (unsigned long)loopMs);
+    }
     delay(5);
 }

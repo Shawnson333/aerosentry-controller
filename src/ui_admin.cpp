@@ -5,6 +5,8 @@
 #include "logging.h"
 #include <time.h>
 
+uint32_t mainLoopMaxMs();  // main.cpp
+
 static lv_obj_t* adminScreen = nullptr;
 static lv_obj_t* adminBody = nullptr;
 static lv_obj_t* adminDiagBtnLabel = nullptr;
@@ -164,8 +166,10 @@ void uiUpdateAdmin() {
              "Vent avg    %s\n"
              "Pulses      good %u bad %u\n"
              "Last purge  %s\n"
-             "Last stops  %s",
+             "Last stops  %s\n"
+             "Firmware    %s   Loop max %lu ms",
              toRh, toF, fromRh, fromF, chamber, chipText, relays, pressure, pressureAvg,
-             stateMachine.ventGoodPulses(), stateMachine.ventBadPulses(), purge, stops);
+             stateMachine.ventGoodPulses(), stateMachine.ventBadPulses(), purge, stops,
+             FIRMWARE_VERSION, (unsigned long)mainLoopMaxMs());
     lv_label_set_text(adminBody, body);
 }
