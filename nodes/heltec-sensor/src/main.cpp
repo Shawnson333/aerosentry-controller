@@ -230,10 +230,13 @@ void loop() {
         packet.ventPressureRaw = 0;
     }
 
-    bool sent = false;
+    uint8_t sent = 0;
     if (radioReady) {
         const uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-        sent = esp_now_send(broadcast, (uint8_t *)&packet, sizeof(packet)) == ESP_OK;
+        for (uint8_t copy = 0; copy < SEND_REPEAT_COUNT; ++copy) {
+            if (copy > 0) delay(SEND_REPEAT_GAP_MS);
+            if (esp_now_send(broadcast, (uint8_t *)&packet, sizeof(packet)) == ESP_OK) sent++;
+        }
     }
     Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d valveMv %d pressRaw %ld stable %u faults %u sent %d\n",
                   (unsigned long)millis(), (unsigned long)packet.sequence, packet.flags,
@@ -242,6 +245,6 @@ void loop() {
                   (packet.flags & SENSOR_FLAG_CHAMBER_VALID) ? tempC : -1.0f,
                   chamberMillivolts, chamberSpread, valveMillivolts,
                   (long)pressureRaw,
-                  chamberStable, chamberFaults, sent ? 1 : 0);
+                  chamberStable, chamberFaults, sent);
     delay(SEND_INTERVAL_MS);
 }

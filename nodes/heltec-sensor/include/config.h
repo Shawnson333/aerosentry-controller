@@ -37,4 +37,11 @@
 
 #define SEND_INTERVAL_MS    1000UL
 
+/* ESP-NOW broadcast has no acknowledgement and no retry. The 2026-11-23
+   dryer log lost about 0.4% of frames, and two lost in a row is a 3.2 s
+   gap. Each packet is sent this many times, SEND_REPEAT_GAP_MS apart, with
+   the same sequence number; the controller keeps the first copy. */
+#define SEND_REPEAT_COUNT   2
+#define SEND_REPEAT_GAP_MS  30UL
+
 #endif

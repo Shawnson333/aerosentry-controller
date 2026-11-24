@@ -587,6 +587,15 @@ static void testRelayTestPulse() {
     EXPECT(hostXl9535[3] == 0x00, "port 1 not cleared");
 }
 
+static void testDuplicatePacketsCountedOnce() {
+    reset("Sensor node sends every packet twice: the controller keeps one copy");
+    Plant p; p.repeatPackets = true;
+    runFor(p, 20000);
+    EXPECT(logCount("ESP-NOW seq 5 ") == 1, "sequence 5 logged %u times", (unsigned)logCount("ESP-NOW seq 5 "));
+    EXPECT(logCount("ESP-NOW seq 12 ") == 1, "sequence 12 logged %u times", (unsigned)logCount("ESP-NOW seq 12 "));
+    EXPECT(stateMachine.command(Command::START_DRYER_AUTO), "auto start refused with duplicated packets");
+}
+
 static void testRestartReport() {
     reset("Restart during a cycle: S18 message names the cycle and the cause");
     stateMachine.reportRestart(SystemMode::RECHARGE, "The controller froze and the watchdog restarted it.");
@@ -622,6 +631,7 @@ int main(int argc, char** argv) {
     testRemoteCannotChangeAutoRechargeSetting();
     testLocalDryerArmsAutoRecharge();
     testRelayTestPulse();
+    testDuplicatePacketsCountedOnce();
     testRestartReport();
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

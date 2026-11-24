@@ -23,6 +23,9 @@ static LinkBeacon latestBeacon = {};
 static uint8_t beaconMac[6] = {};
 static volatile bool beaconReady = false;
 static bool radioReady = false;
+static bool haveSequence = false;
+static uint32_t lastSequence = 0;
+static uint32_t duplicateCount = 0;
 
 static bool ageOk(uint32_t maxAgeMs) {
     if (!sensors.valid || sensors.timestamp == 0) return false;
@@ -161,6 +164,16 @@ bool sensorsUpdate() {
     packet = latestPacket;
     packetReady = false;
     portEXIT_CRITICAL(&sensorMux);
+
+    // The sensor node sends each packet twice (SEND_REPEAT_COUNT). Keep the
+    // first copy so timestamps, logs and gap analysis see one packet per
+    // sequence number. A node reboot restarts at 0, which is accepted.
+    if (haveSequence && packet.sequence == lastSequence) {
+        duplicateCount++;
+        return false;
+    }
+    haveSequence = true;
+    lastSequence = packet.sequence;
 
     sensors.toValid = (packet.flags & SENSOR_FLAG_TO_VALID) != 0;
     sensors.fromValid = (packet.flags & SENSOR_FLAG_FROM_VALID) != 0;
