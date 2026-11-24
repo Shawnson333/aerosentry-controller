@@ -106,10 +106,11 @@ public:
     int32_t ventBaseline() const;
     bool ventBaselineValid() const;
     int32_t ventPulsePeak() const;
-    bool ventPulseHit() const;
+    /* Step of the last judged pump pulse (peak minus baseline). False if none yet. */
+    bool ventLastStep(int32_t &step) const;
     uint32_t ventAmbientCount() const;
-    uint8_t ventGoodPulses() const;
-    uint8_t ventBadPulses() const;
+    uint16_t ventGoodPulses() const;
+    uint16_t ventBadPulses() const;
     bool purgeRecent() const;
     uint32_t purgeAgeMs() const;
     bool hasPurgeRecord() const { return _purgeSeen; }
@@ -159,15 +160,20 @@ private:
     int32_t _ventBaseline;          // Idle vent pressure, learned while the pump is off
     bool _ventBaselineValid;
     uint32_t _ventLearnStartMs;
-    uint8_t _ventGoodPulses;        // Pulses that showed the expected pressure step
-    uint8_t _ventBadPulses;         // Pulses that showed no step
+    uint16_t _ventGoodPulses;       // Pulses that showed the expected pressure step
+    uint16_t _ventBadPulses;        // Pulses that showed no step (one stops the cycle)
     // Ambient averaging (2026-11-20): running average of pump-OFF samples.
     // Re-learned every recharge; drift is tracked between pulses.
     double _ventAmbientSum;
     uint32_t _ventAmbientCount;
     uint32_t _ventLastSampleMs;
     int32_t _ventPulsePeak;         // Max raw seen during the current 10 s pulse
-    bool _ventPulseHit;            // Peak reached baseline + 20,000 during this pulse
+    uint16_t _ventPulseSamples;     // Pressure packets seen during the current pulse
+    uint32_t _ventPulseLastStamp;   // sensors.pressureTimestamp of the last counted packet
+    int32_t _ventLastStep;          // Step of the last judged pulse, for the Admin page
+    bool _ventLastStepValid;
+    uint32_t _cooldownWindow;       // Which 10 min cool down window the pulse logic is in
+    bool _cooldownPulseRun;         // This window's cool down pulse is running
     uint8_t _pulseCount;            // Recharge pulses completed, used for the first-pulse flush
     float _valveBaselineRH;         // From-Engine baseline, set after the flush pulse
     uint8_t _valvePulseCount;       // End-of-pulse samples judged since recharge started
@@ -197,7 +203,9 @@ private:
     void updatePurge();
     void updateManual();
     void updateAuto();
-    void updateRecharge();
+    void updateRecharge(bool sensorsOk);
+    void holdRechargeForSensors();
+    void runCooldownPulse(uint32_t cooldownMs);
     void checkSaturation();
     void resetSaturation();
     void checkThermal();
@@ -213,7 +221,14 @@ private:
     void rechargeFailureCooldown(StopReason reason);
     bool evaluateValveVerification();
     void checkValveCurrent();
-    bool evaluateVentPressure();
+    enum class VentResult { OK, FAULT, NOT_JUDGED };
+    VentResult judgeVentPulse(const char* label);
+    void trackVentPulse();
+    void resetVentPulse();
+    bool ventCheckReady() const;
+    bool ventBaselineReady() const;
+    bool ventSensorOk() const;
+    const char* rechargeSensorBlockReason() const;
     void learnVentBaseline();
     uint32_t phaseElapsed() const;
     uint32_t phaseRemaining(uint32_t totalMs) const;

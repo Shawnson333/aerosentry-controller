@@ -29,9 +29,17 @@ static bool ageOk(uint32_t maxAgeMs) {
     return (millis() - sensors.timestamp) <= maxAgeMs;
 }
 
-static bool humidityReady(bool validFlag, uint32_t timestamp) {
-    return sensorPacketFresh() && validFlag &&
-           timestamp != 0 && (millis() - timestamp) <= SAMPLE_MAX_AGE_MS;
+/* A reading is ready when a VALID sample of it arrived within
+   SAMPLE_MAX_AGE_MS (2026-11-24). It used to also need the latest packet's
+   flag, so one bad read (an SHT40 CRC error, an HX711 not ready) made the
+   sensor "missing" at once and cut recharge pulses short; the host
+   simulation showed a sensor that failed one read in five stalled a
+   recharge forever. With no valid sample for SAMPLE_MAX_AGE_MS the reading
+   still counts as missing, so this still fails closed. The chamber keeps
+   the stricter rule below because it gates the heater. */
+static bool sampleFresh(uint32_t timestamp) {
+    return sensorPacketFresh() && timestamp != 0 &&
+           (millis() - timestamp) <= SAMPLE_MAX_AGE_MS;
 }
 
 bool sensorPacketFresh() {
@@ -39,11 +47,11 @@ bool sensorPacketFresh() {
 }
 
 bool toEngineReady() {
-    return sensorPacketFresh() && humidityReady(sensors.toValid, sensors.toTimestamp);
+    return sampleFresh(sensors.toTimestamp);
 }
 
 bool fromEngineReady() {
-    return sensorPacketFresh() && humidityReady(sensors.fromValid, sensors.fromTimestamp);
+    return sampleFresh(sensors.fromTimestamp);
 }
 
 bool chamberReady() {
@@ -65,6 +73,10 @@ bool toEngineSampleReady() {
 
 bool fromEngineSampleReady() {
     return fromEngineReady() && ageOk(SAMPLE_MAX_AGE_MS);
+}
+
+bool pressureReady() {
+    return sampleFresh(sensors.pressureTimestamp);
 }
 
 static float fromCenti(int16_t value) {
@@ -155,7 +167,10 @@ bool sensorsUpdate() {
     sensors.chamberValid = (packet.flags & SENSOR_FLAG_CHAMBER_VALID) != 0;
     sensors.valveAdcMillivolts = packet.valveAdcMillivolts;
     sensors.pressureValid = (packet.flags & SENSOR_FLAG_PRESSURE_VALID) != 0;
-    sensors.ventPressureRaw = sensors.pressureValid ? packet.ventPressureRaw : 0;
+    if (sensors.pressureValid) {
+        sensors.ventPressureRaw = packet.ventPressureRaw;  // keeps the last valid value
+        sensors.pressureTimestamp = millis();
+    }
     if (sensors.toValid) {
         sensors.toEngineRH = fromCenti(packet.toEngineRhCenti);
         sensors.toEngineTemp = fromCenti(packet.toEngineTempCenti);
@@ -187,7 +202,7 @@ bool sensorsUpdate() {
         Serial.printf(" age %lu ms", (unsigned long)(logTime - sensors.chamberTimestamp));
     }
     Serial.printf(" valve %d mV", sensors.valveAdcMillivolts);
-    Serial.printf(" press %ld", (long)sensors.ventPressureRaw);
+    Serial.printf(" press %ld", sensors.pressureValid ? (long)sensors.ventPressureRaw : 0L);
     Serial.println();
     return true;
 }

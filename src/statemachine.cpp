@@ -229,7 +229,12 @@ StateMachine::StateMachine()
     , _ventAmbientCount(0)
     , _ventLastSampleMs(0)
     , _ventPulsePeak(0)
-    , _ventPulseHit(false)
+    , _ventPulseSamples(0)
+    , _ventPulseLastStamp(0)
+    , _ventLastStep(0)
+    , _ventLastStepValid(false)
+    , _cooldownWindow(UINT32_MAX)
+    , _cooldownPulseRun(false)
     , _valveBaselineRH(-1.0f)
     , _valvePulseCount(0)
     , _valveHighCount(0)
@@ -340,50 +345,44 @@ void StateMachine::update() {
         return;
     }
     if (_mode != SystemMode::IDLE) {
-        if (!sensorsOkForMode()) {
-            // Sensor dropout grace. The sensor node sends on ESP-NOW broadcast, which has no
-            // retry, so a lost frame or two is normal. A 3.2 s gap (two lost packets) used to
-            // stop a cycle at once. Hold for SENSOR_LOSS_GRACE_MS before stopping. While
-            // holding there are no new decisions, and in recharge there is no heat unless the
-            // chamber reading is fresh.
+        const bool sensorsOk = sensorsOkForMode();
+        // Sensor dropout grace. The sensor node sends on ESP-NOW broadcast, which has no
+        // retry, so a lost frame or two is normal. A 3.2 s gap (two lost packets) used to
+        // stop a cycle at once. Required readings may be missing for SENSOR_LOSS_GRACE_MS.
+        if (!sensorsOk) {
             if (!_sensorLost) {
                 _sensorLost = true;
                 _sensorLostSinceMs = millis();
                 Serial.println(F("Sensor dropout - holding"));
             }
-            if (millis() - _sensorLostSinceMs < SENSOR_LOSS_GRACE_MS) {
-                if (_mode == SystemMode::RECHARGE) {
-                    if (chamberReady()) regulateHeater();
-                    else _heaterOn = false;
-                }
-                updateFan();
-                applyOutputs();
-                return;
-            }
-            if (_mode == SystemMode::RECHARGE && _valveEnergized && _chamberReachedTarget) {
-                rechargeFailureCooldown(sensorLossReason());
-            } else {
+        } else if (_sensorLost) {
+            _sensorLost = false;
+            Serial.printf("Sensors back after %lu ms\n",
+                          (unsigned long)(millis() - _sensorLostSinceMs));
+        }
+        if (sensorsOk && _inGracePeriod && (millis() - _modeStartTime >= GRACE_MS)) {
+            _inGracePeriod = false;
+        }
+        if (_mode == SystemMode::RECHARGE) {
+            // Recharge handles a dropout itself: no heat without a fresh chamber
+            // reading, no pump pulse the vent check cannot confirm, and a failure
+            // cool down that still advances if the sensors never come back.
+            updateRecharge(sensorsOk);
+        } else if (!sensorsOk) {
+            // Purge and the dryers hold their outputs (no new decisions), then stop.
+            if (millis() - _sensorLostSinceMs >= SENSOR_LOSS_GRACE_MS) {
                 stopWith(sensorLossReason());
             }
         } else {
-            if (_sensorLost) {
-                _sensorLost = false;
-                Serial.printf("Sensors back after %lu ms\n",
-                              (unsigned long)(millis() - _sensorLostSinceMs));
-            }
-            if (_inGracePeriod && (millis() - _modeStartTime >= GRACE_MS)) {
-                _inGracePeriod = false;
-            }
             switch (_mode) {
                 case SystemMode::PURGE:        updatePurge(); break;
                 case SystemMode::DRYER_MANUAL: updateManual(); break;
                 case SystemMode::DRYER_AUTO:   updateAuto(); break;
-                case SystemMode::RECHARGE:     updateRecharge(); break;
                 default: break;
             }
-            if (_mode != SystemMode::IDLE) checkSaturation();
-            if (_mode != SystemMode::IDLE) maybeLog();
         }
+        if (_mode != SystemMode::IDLE && sensorsOk) checkSaturation();
+        if (_mode != SystemMode::IDLE && sensorsOk) maybeLog();
     }
     checkThermal();
     updateFan();
@@ -412,13 +411,33 @@ const char* StateMachine::startBlockReason(Command cmd) const {
             }
             return nullptr;
         case Command::START_RECHARGE:
-            if (!toEngineReady() || !chamberReady()) {
-                return "Recharge needs To-Engine and\nthe chamber thermistor.";
-            }
-            return nullptr;
+            return rechargeSensorBlockReason();
         default:
             return "Unknown command.";
     }
+}
+
+/* Readings a recharge needs before it may start, whether from the screen or
+   from a saturated dryer cycle. nullptr when they are all present. The vent
+   pressure sensor is required (2026-11-24): without it the valve position
+   cannot be confirmed, so no recharge pump pulse may run. */
+const char* StateMachine::rechargeSensorBlockReason() const {
+    if (!toEngineReady() || !chamberReady()) {
+        return "Recharge needs To-Engine and\nthe chamber thermistor.";
+    }
+    if (!ventSensorOk()) {
+        return "Recharge needs the vent pressure sensor.\nCheck the pressure module and its cable.";
+    }
+    return nullptr;
+}
+
+/* Vent pressure reading present, or the check is compiled out. */
+bool StateMachine::ventSensorOk() const {
+#if VENT_PRESSURE_CHECK_ENABLED
+    return pressureReady();
+#else
+    return true;
+#endif
 }
 
 bool StateMachine::command(Command cmd) {
@@ -480,7 +499,8 @@ void StateMachine::enterMode(SystemMode newMode) {
             // Start with a real sample: run the pump so engine air reaches the From-Engine
             // sensor, settle, then read. Starting in DRYING read the first packet right
             // after the pump started, which was only dry air sitting in the chamber.
-            _autoPhase = AutoPhase::SAMPLE_RUN;
+            // setAutoPhase() prints "Auto phase 4" so the first sample shows in the log.
+            setAutoPhase(AutoPhase::SAMPLE_RUN);
             _pumpOn = true;
             break;
         case SystemMode::RECHARGE:
@@ -502,7 +522,12 @@ void StateMachine::enterMode(SystemMode newMode) {
             _ventAmbientCount = 0;
             _ventLastSampleMs = 0;
             _ventPulsePeak = 0;
-            _ventPulseHit = false;
+            _ventPulseSamples = 0;
+            _ventPulseLastStamp = 0;
+            _ventLastStep = 0;
+            _ventLastStepValid = false;
+            _cooldownWindow = UINT32_MAX;
+            _cooldownPulseRun = false;
             _pulseCount = 0;
             _valveBaselineRH = -1.0f;
             _valvePulseCount = 0;
@@ -657,14 +682,26 @@ void StateMachine::updateAuto() {
     }
 }
 
-void StateMachine::updateRecharge() {
+void StateMachine::updateRecharge(bool sensorsOk) {
+    /* Sensor loss (2026-11-24). While required readings are missing there is no
+       heat without a fresh chamber reading and no pump pulse that the vent check
+       cannot confirm. When the grace runs out, the failure cool down starts once
+       and then advances on time even if the sensors never come back. */
+    const bool lossExpired = !sensorsOk && _sensorLost &&
+                             millis() - _sensorLostSinceMs >= SENSOR_LOSS_GRACE_MS;
+    if (lossExpired && !_rechargeFailure) {
+        rechargeFailureCooldown(sensorLossReason());
+        if (_mode != SystemMode::RECHARGE) return;
+    }
+
     // Heat-up backstop. The max run time below only starts once the chamber reaches
     // target, so a heater or thermistor fault that never gets there needs its own limit.
+    // The chamber may be hot, so it cools down with the valves venting before it stops.
     if (!_chamberReachedTarget && _rechargePhase == RechargePhase::HEATING &&
         millis() - _modeStartTime >= RECHARGE_HEATUP_MAX_MS) {
         Serial.println(F("Recharge heat-up timed out - chamber never reached target"));
-        stopWith(StopReason::HEATUP_TIMEOUT);
-        return;
+        rechargeFailureCooldown(StopReason::HEATUP_TIMEOUT);
+        if (_mode != SystemMode::RECHARGE) return;
     }
     if (!_rechargeTimedOut && _chamberReachedTarget &&
         millis() - _chamberReachedMs >= RECHARGE_MAX_MS &&
@@ -682,13 +719,32 @@ void StateMachine::updateRecharge() {
     }
     checkValveCurrent();
     if (_mode != SystemMode::RECHARGE) return;  // Coil fault stopped the cycle.
-    regulateHeater();
+
+    const bool cooling = _rechargePhase == RechargePhase::COOLDOWN ||
+                         _rechargePhase == RechargePhase::SAFETY_PULSE ||
+                         _rechargePhase == RechargePhase::SAFETY_WAIT;
+    if (cooling) {
+        _heaterOn = false;
+    } else if (sensorsOk || chamberReady()) {
+        regulateHeater();  // may hold the previous command briefly; never newly heats on a stale reading
+    } else {
+        _heaterOn = false;
+    }
+
+    if (!sensorsOk && _rechargePhase != RechargePhase::COOLDOWN) {
+        holdRechargeForSensors();
+        return;
+    }
 
     switch (_rechargePhase) {
         case RechargePhase::HEATING:
             _pumpOn = false;
             if (chamberReady() &&
                 celsiusToFahrenheit(sensors.chamberTemp) >= (float)RECHARGE_TARGET_TEMP_F) {
+                // The first pulse is judged against the vent baseline, so it must be
+                // learned first. It takes 30 s and heat-up takes minutes, so this only
+                // waits when a recharge starts on an already hot chamber.
+                if (!ventBaselineReady()) break;
                 _chamberReachedTarget = true;
                 _chamberReachedMs = millis();  // the long-pulse hour counts from here, not from start
                 setRechargePhase(RechargePhase::PULSE_ON);
@@ -696,49 +752,40 @@ void StateMachine::updateRecharge() {
             break;
         case RechargePhase::PULSE_ON: {
             _pumpOn = true;
-            // Track the highest vent pressure seen at ANY point in this pulse.
-            if (sensors.pressureValid && sensors.ventPressureRaw > _ventPulsePeak) {
-                _ventPulsePeak = sensors.ventPressureRaw;
-            }
+            trackVentPulse();  // highest vent pressure at ANY point in this pulse
             // Pump on time: 10 s for the first hour after the chamber first reaches
             // target (heat-up time does not count). After that hour,
-            // RECHARGE_LONG_PULSE_ON_MS (15 s). Off time stays 1 minute.
+            // RECHARGE_LONG_PULSE_ON_MS (also 10 s since 2026-11-23). Off time stays 1 minute.
             const bool soaked = _chamberReachedTarget &&
                                 (millis() - _chamberReachedMs) >= RECHARGE_LONG_PULSE_AFTER_MS;
             const uint32_t pulseMs = (_pulseCount == 0)
                                          ? RECHARGE_FIRST_PULSE_MS
                                          : (soaked ? RECHARGE_LONG_PULSE_ON_MS
                                                    : RECHARGE_PULSE_ON_MS);
-            if (phaseElapsed() >= pulseMs) {
-                if (!fromEngineSampleReady()) {
-                    // Wait for the reading instead of failing on one missed packet.
-                    // Pump off while waiting. Fail only after the grace time.
-                    if (phaseElapsed() < pulseMs + SENSOR_LOSS_GRACE_MS) {
-                        _pumpOn = false;
-                        break;
-                    }
-                    rechargeFailureCooldown(StopReason::FROM_ENGINE_LOST);
-                    return;
-                }
-                if (!evaluateValveVerification()) return;
-                if (!evaluateVentPressure()) return;
-                if (_pulseCount < 255) _pulseCount++;
-                if (toEngineSampleReady()) {
-                    if (sensors.toEngineRH <= RECHARGE_TARGET_RH) {
-                        if (_rechargeGoodCycles < 255) _rechargeGoodCycles++;
-                    } else {
-                        _rechargeGoodCycles = 0;
-                    }
-                }
-                Serial.printf("Recharge sample %.1f%% good %u/%u\n",
-                              toEngineSampleReady() ? sensors.toEngineRH : -1.0f,
-                              _rechargeGoodCycles, RECHARGE_GOOD_CYCLES);
-                if (_rechargeGoodCycles >= RECHARGE_GOOD_CYCLES) {
-                    setRechargePhase(RechargePhase::COOLDOWN);
-                    return;
-                }
-                setRechargePhase(RechargePhase::PULSE_WAIT);
+            if (phaseElapsed() < pulseMs) break;
+            _pumpOn = false;
+            const VentResult vent = judgeVentPulse("recharge");
+            if (vent == VentResult::FAULT) return;  // Stopped with VALVE_SUSPECT.
+            if (vent == VentResult::NOT_JUDGED) {
+                setRechargePhase(RechargePhase::PULSE_WAIT);  // does not count as a pulse
+                break;
             }
+            if (_pulseCount < 255) _pulseCount++;
+            if (toEngineSampleReady()) {
+                if (sensors.toEngineRH <= RECHARGE_TARGET_RH) {
+                    if (_rechargeGoodCycles < 255) _rechargeGoodCycles++;
+                } else {
+                    _rechargeGoodCycles = 0;
+                }
+            }
+            Serial.printf("Recharge sample %.1f%% good %u/%u\n",
+                          toEngineSampleReady() ? sensors.toEngineRH : -1.0f,
+                          _rechargeGoodCycles, RECHARGE_GOOD_CYCLES);
+            if (_rechargeGoodCycles >= RECHARGE_GOOD_CYCLES) {
+                setRechargePhase(RechargePhase::COOLDOWN);
+                return;
+            }
+            setRechargePhase(RechargePhase::PULSE_WAIT);
             break;
         }
         case RechargePhase::PULSE_WAIT:
@@ -750,16 +797,20 @@ void StateMachine::updateRecharge() {
         case RechargePhase::COOLDOWN: {
             _heaterOn = false;
             _fanOn = true;
-            // Loose cooldown (2026-11-20): 10 s ON / 10 min OFF, valves OPEN.
-            // Case fan ON the whole hour. Early exit when chamber <= 120 F.
+            // Cool down: heater off, case fan on, valves OPEN, pump 10 s every 10 min
+            // when the vent check can confirm it. Ends at 120 F or after 2 hours.
             // sensors.chamberTemp is Celsius, so convert before comparing. It was compared
             // to 120 as is, which is 248 F, so the cool down ended at once on every run.
+            // Runs on time alone when the sensors are missing (failure cool down).
             const uint32_t cooldownMs = phaseElapsed();
             const bool coolReached = chamberReady() &&
                                      celsiusToFahrenheit(sensors.chamberTemp) <= RECHARGE_FAILED_FAN_TEMP_F;
-            const bool phaseDone = coolReached || cooldownMs >= RECHARGE_COOLDOWN_MS;
-            if (phaseDone) {
+            if (coolReached || cooldownMs >= RECHARGE_COOLDOWN_MS) {
                 _pumpOn = false;
+                resetVentPulse();
+                Serial.printf("Cool down done after %lu min: %s\n",
+                              (unsigned long)(cooldownMs / 60000UL),
+                              coolReached ? "chamber at or below 120 F" : "time limit");
                 if (_rechargeFailure) {
                     StopReason reason = _rechargeFailureReason;
                     _valveEnergized = false;
@@ -771,18 +822,24 @@ void StateMachine::updateRecharge() {
                 setRechargePhase(RechargePhase::SAFETY_PULSE);
                 break;
             }
-            const bool pulseOn = (cooldownMs % RECHARGE_COOLDOWN_INTERVAL_MS) < RECHARGE_COOLDOWN_PULSE_ON_MS;
-            _pumpOn = pulseOn;
+            runCooldownPulse(cooldownMs);
             break;
         }
-        case RechargePhase::SAFETY_PULSE:
+        case RechargePhase::SAFETY_PULSE: {
             _heaterOn = false;
             _pumpOn = true;
-            if (phaseElapsed() >= SAFETY_PULSE_MS) {
-                _pumpOn = false;
-                setRechargePhase(RechargePhase::SAFETY_WAIT);
+            trackVentPulse();
+            if (phaseElapsed() < SAFETY_PULSE_MS) break;
+            _pumpOn = false;
+            const VentResult vent = judgeVentPulse("safety");
+            if (vent == VentResult::FAULT) return;
+            if (vent == VentResult::NOT_JUDGED) {
+                setRechargePhase(RechargePhase::SAFETY_PULSE);  // run the pulse again
+                break;
             }
+            setRechargePhase(RechargePhase::SAFETY_WAIT);
             break;
+        }
         case RechargePhase::SAFETY_WAIT:
             _heaterOn = false;
             _pumpOn = false;
@@ -805,6 +862,9 @@ void StateMachine::updateRecharge() {
                             _rechargeTriggeredByCycle = false;
                             _rechargeResumeMode = SystemMode::IDLE;
                             Serial.println(F("Recharge complete - resuming previous cycle"));
+                            logger.logStop((uint8_t)StopReason::RECHARGE_COMPLETE,
+                                           stopReasonName(StopReason::RECHARGE_COMPLETE),
+                                           SystemMode::RECHARGE, nullptr);
                             enterMode(resumeMode);
                             return;
                         }
@@ -825,6 +885,62 @@ void StateMachine::updateRecharge() {
             }
             break;
     }
+}
+
+/* Required recharge readings are missing but the grace has not run out. No new
+   decisions. The pump stops at once: a pulse the vent check cannot judge must
+   not run. A cut pulse is not judged and is run again once the sensors return. */
+void StateMachine::holdRechargeForSensors() {
+    switch (_rechargePhase) {
+        case RechargePhase::PULSE_ON:
+            Serial.println(F("Recharge pulse cut short by a sensor dropout - not judged"));
+            resetVentPulse();
+            setRechargePhase(RechargePhase::PULSE_WAIT);
+            break;
+        case RechargePhase::SAFETY_PULSE:
+            resetVentPulse();
+            _phaseStartTime = millis();  // the full safety pulse runs once sensors are back
+            break;
+        default:
+            break;
+    }
+    _pumpOn = false;
+}
+
+/* Cool down pump pulses (10 s every 10 min) push the hot, wet air out of the
+   vent. A pulse runs only when the vent pressure check can confirm the air is
+   going outside, and it is judged like a recharge pulse. Without vent pressure
+   the cool down runs on the case fan alone (user decision 2026-11-24). */
+void StateMachine::runCooldownPulse(uint32_t cooldownMs) {
+    const uint32_t window = cooldownMs / RECHARGE_COOLDOWN_INTERVAL_MS;
+    const bool inPulse = (cooldownMs % RECHARGE_COOLDOWN_INTERVAL_MS) < RECHARGE_COOLDOWN_PULSE_ON_MS;
+    if (window != _cooldownWindow) {
+        _cooldownWindow = window;
+        resetVentPulse();
+        _cooldownPulseRun = inPulse && ventCheckReady();
+        if (inPulse && !_cooldownPulseRun) {
+            Serial.println(F("Cool down pulse skipped - no vent pressure to confirm the valves"));
+        }
+    }
+    if (!_cooldownPulseRun) {
+        _pumpOn = false;
+        return;
+    }
+    if (!ventCheckReady()) {
+        Serial.println(F("Cool down pulse cut short - vent pressure lost, not judged"));
+        _cooldownPulseRun = false;
+        _pumpOn = false;
+        resetVentPulse();
+        return;
+    }
+    if (inPulse) {
+        _pumpOn = true;
+        trackVentPulse();
+        return;
+    }
+    _pumpOn = false;
+    _cooldownPulseRun = false;
+    judgeVentPulse("cool down");  // a fault stops the cycle
 }
 
 bool StateMachine::purgeRecent() const {
@@ -906,6 +1022,7 @@ StopReason StateMachine::sensorLossReason() const {
             break;
         case SystemMode::RECHARGE:
             if (!chamberReady() && !chamberRetryPending()) return StopReason::CHAMBER_LOST;
+            if (!ventSensorOk()) return StopReason::VENT_SENSOR_LOST;
             break;
         default:
             break;
@@ -951,15 +1068,33 @@ void StateMachine::setValve(bool on) {
     }
 }
 
-/* On any recharge failure, keep venting outside and cool the chamber for the
-   full cool down window before closing the valves and going idle. */
+/* On any recharge failure, keep venting outside and cool the chamber before
+   closing the valves and going idle. Entered once: the first failure is the
+   one reported, and a cool down already under way keeps the time it has
+   spent. If only the safety check was left, the chamber is already cool, so
+   it stops at once. */
 void StateMachine::rechargeFailureCooldown(StopReason reason) {
+    if (_rechargeFailure) return;
     _rechargeFailure = true;
     _rechargeFailureReason = reason;
+    _rechargeTriggeredByCycle = false;  // a failed recharge never resumes a dryer cycle
     _heaterOn = false;
-    Serial.print(F("Recharge failure - cool down, valve stays open, reason "));
-    Serial.println((int)reason);
-    setRechargePhase(RechargePhase::COOLDOWN);
+    _pumpOn = false;
+    resetVentPulse();
+    Serial.printf("Recharge failure %s - cool down, valves stay open\n", stopReasonName(reason));
+    switch (_rechargePhase) {
+        case RechargePhase::SAFETY_PULSE:
+        case RechargePhase::SAFETY_WAIT:
+            _valveEnergized = false;
+            _rechargeEndEpoch = systemClockEpoch();
+            stopWith(reason, nullptr, true);
+            return;
+        case RechargePhase::COOLDOWN:
+            break;
+        default:
+            setRechargePhase(RechargePhase::COOLDOWN);
+            break;
+    }
 }
 
 /* Valve position verification, judged only on end-of-pulse From-Engine
@@ -1012,11 +1147,13 @@ bool StateMachine::evaluateValveVerification() {
    (heating and inter-pulse waits). The baseline is the running AVERAGE of
    those samples, not the lowest. Re-learned on every recharge cycle, and
    updated between pulses, so barometric drift cannot fake a good step.
-   The first sample seeds the sum; later samples are added to it. */
+   The first sample seeds the sum; later samples are added to it.
+   Only fresh readings count (2026-11-24): a silent sensor node used to keep
+   feeding its last value into the average. */
 void StateMachine::learnVentBaseline() {
 #if VENT_PRESSURE_CHECK_ENABLED
     if (_pumpOn) return;
-    if (!sensors.pressureValid) return;
+    if (!pressureReady()) return;
     if (_ventBaselineValid) {
         if (_ventLastSampleMs != 0 &&
             millis() - _ventLastSampleMs < VENT_PRESSURE_AMBIENT_SAMPLE_MS) return;
@@ -1056,6 +1193,47 @@ void StateMachine::learnVentBaseline() {
 #endif
 }
 
+/* True when a pump pulse can be judged by the vent check: the pressure
+   reading is fresh and the ambient baseline is learned. Always true with
+   the check compiled out. */
+bool StateMachine::ventCheckReady() const {
+#if VENT_PRESSURE_CHECK_ENABLED
+    return pressureReady() && _ventBaselineValid;
+#else
+    return true;
+#endif
+}
+
+bool StateMachine::ventBaselineReady() const {
+#if VENT_PRESSURE_CHECK_ENABLED
+    return _ventBaselineValid;
+#else
+    return true;
+#endif
+}
+
+/* Start a new pulse window: forget the peak and the sample count. */
+void StateMachine::resetVentPulse() {
+    _ventPulsePeak = 0;
+    _ventPulseSamples = 0;
+    _ventPulseLastStamp = 0;
+}
+
+/* Called every loop while the pump runs. Counts each new pressure packet once
+   and keeps the highest reading. Judging only the last packet before the
+   phase timer was wrong (2026-11-21): the peak can come at any point. */
+void StateMachine::trackVentPulse() {
+#if VENT_PRESSURE_CHECK_ENABLED
+    if (!pressureReady()) return;
+    if (sensors.pressureTimestamp == _ventPulseLastStamp) return;  // same packet as before
+    _ventPulseLastStamp = sensors.pressureTimestamp;
+    if (_ventPulseSamples == 0 || sensors.ventPressureRaw > _ventPulsePeak) {
+        _ventPulsePeak = sensors.ventPressureRaw;
+    }
+    if (_ventPulseSamples < 0xFFFF) _ventPulseSamples++;
+#endif
+}
+
 /* Vent pressure verification. The pump draws air through the chamber and the
    dump valve sends the regen exhaust out the vent line. With the valve open
    the vent line must show a pressure step against the idle baseline. No step
@@ -1063,62 +1241,45 @@ void StateMachine::learnVentBaseline() {
    system. This is a positive check on the mechanical valve position and does
    not depend on humidity at all.
 
-   The ambient baseline is a running average (see learnVentBaseline), so
-   each reading is compared against the live ambient, not a stale lowest.
-   A pulse is "good" only if the raw reading rises to >= baseline + 20,000
-   counts at any point during the 10 s pump pulse. */
-bool StateMachine::evaluateVentPressure() {
+   A pulse is good only if its peak rose to >= baseline + VENT_PRESSURE_MIN_STEP.
+   One bad pulse stops the cycle (VALVE_SUSPECT); each pulse stands alone, so a
+   good pulse never hides a later disconnect. A pulse with no pressure sample
+   at all is NOT judged and does not count: the callers never start a pulse
+   without fresh pressure, so this only happens when the reading drops out
+   mid-pulse, and the sensor-loss grace handles that (fails closed). */
+StateMachine::VentResult StateMachine::judgeVentPulse(const char* label) {
 #if VENT_PRESSURE_CHECK_ENABLED
-    if (!sensors.pressureValid) {
-        /* No pressure data. Do not block the cycle; the coil current check
-           and the operator are the backups. */
-        return true;
+    if (_ventPulseSamples == 0 || !_ventBaselineValid) {
+        Serial.printf("Vent pressure: no samples in the %s pulse - not judged\n", label);
+        resetVentPulse();
+        return VentResult::NOT_JUDGED;
     }
-    if (!_ventBaselineValid) {
-        /* Baseline not learned yet. Do not judge a pulse before the idle
-           level is known. */
-        return true;
-    }
-    const int32_t raw = sensors.ventPressureRaw;
-    if (raw > _ventPulsePeak) _ventPulsePeak = raw;
     const int32_t peakStep = _ventPulsePeak - _ventBaseline;
     const bool sawStep = peakStep >= VENT_PRESSURE_MIN_STEP;
-    if (sawStep) _ventPulseHit = true;
-    const int32_t step = raw - _ventBaseline;
     if (sawStep) {
-        _ventGoodPulses++;
-        _ventBadPulses = 0;
-    } else {
+        if (_ventGoodPulses < 0xFFFF) _ventGoodPulses++;
+    } else if (_ventBadPulses < 0xFFFF) {
         _ventBadPulses++;
     }
-    Serial.printf("Vent pressure raw %ld peak %ld step %ld %s good %u bad %u\\n",
-                  (long)raw, (long)_ventPulsePeak, (long)peakStep, sawStep ? "OK" : "NO FLOW",
-                  _ventGoodPulses, _ventBadPulses);
-
-    // Re-arm for the NEXT pulse. A single bad pulse is a safety shutdown;
-    // a good pulse does not hide a later disconnect.
-    const bool thisPulseBad = !_ventPulseHit;
-    _ventPulsePeak = 0;
-    _ventPulseHit = false;
-
-    // The whole 10 s pulse must have shown +20,000 over the ambient average.
-    // A single bad pulse is a safety shutdown (test: disconnected line).
-    if (thisPulseBad) {
-        Serial.println(F("Vent pressure fault - pulse did not rise 20,000 over ambient"));
+    _ventLastStep = peakStep;
+    _ventLastStepValid = true;
+    Serial.printf("Vent pressure raw %ld peak %ld step %ld %s good %u bad %u %s pulse\n",
+                  (long)sensors.ventPressureRaw, (long)_ventPulsePeak, (long)peakStep,
+                  sawStep ? "OK" : "NO FLOW", _ventGoodPulses, _ventBadPulses, label);
+    resetVentPulse();
+    if (!sawStep) {
+        Serial.printf("Vent pressure fault - pulse did not rise %ld over ambient\n",
+                      (long)VENT_PRESSURE_MIN_STEP);
         char detail[96];
         snprintf(detail, sizeof(detail), "Pump pulse raised the vent pressure %ld counts. It needs %ld.",
                  (long)peakStep, (long)VENT_PRESSURE_MIN_STEP);
         stopWith(StopReason::VALVE_SUSPECT, detail);
-        return false;
+        return VentResult::FAULT;
     }
-
-    if (_ventBadPulses >= VENT_PRESSURE_SAMPLES) {
-        Serial.println(F("Vent pressure fault - dump valve did not open"));
-        stopWith(StopReason::VALVE_SUSPECT);
-        return false;
-    }
+#else
+    (void)label;
 #endif
-    return true;
+    return VentResult::OK;
 }
 
 /* Coil current supervision. The sensor node reads the 1-ohm shunt and reports
@@ -1185,16 +1346,24 @@ void StateMachine::checkSaturation() {
         return;
     }
     if (now - _saturationMark >= SAT_HOLD_MS) {
+        const char* detail = nullptr;
         if (_mode == SystemMode::DRYER_MANUAL || _mode == SystemMode::DRYER_AUTO) {
             if (config.allowAutoRecharge) {
-                Serial.println(F("Saturation reached - starting automatic recharge"));
-                _rechargeTriggeredByCycle = true;
-                _rechargeResumeMode = _mode;
-                enterMode(SystemMode::RECHARGE);
-                return;
+                // An automatic recharge needs the same readings as one started on
+                // the screen. enterMode() does not check them, so check here.
+                const char* block = rechargeSensorBlockReason();
+                if (block == nullptr) {
+                    Serial.println(F("Saturation reached - starting automatic recharge"));
+                    _rechargeTriggeredByCycle = true;
+                    _rechargeResumeMode = _mode;
+                    enterMode(SystemMode::RECHARGE);
+                    return;
+                }
+                Serial.printf("Automatic recharge not started: %s\n", block);
+                detail = "Auto Recharge could not start: a recharge sensor is missing.";
             }
         }
-        stopWith(StopReason::SATURATED);
+        stopWith(StopReason::SATURATED, detail);
     }
 }
 
@@ -1252,7 +1421,9 @@ bool StateMachine::sensorsOkForMode() const {
             return toEngineReady();
         case SystemMode::RECHARGE:
             // A retry may hold the previous heater command, but cannot newly enable it.
-            return toEngineReady() && (chamberReady() || chamberRetryPending());
+            // Vent pressure is required too (2026-11-24): no pump pulse without it.
+            return toEngineReady() && (chamberReady() || chamberRetryPending()) &&
+                   ventSensorOk();
         case SystemMode::DRYER_AUTO:
             return toEngineReady() && fromEngineReady();
         default:
@@ -1278,6 +1449,10 @@ void StateMachine::setAutoPhase(AutoPhase phase) {
 void StateMachine::setRechargePhase(RechargePhase phase) {
     _rechargePhase = phase;
     _phaseStartTime = millis();
+    if (phase == RechargePhase::COOLDOWN) {
+        _cooldownWindow = UINT32_MAX;  // the first cool down pulse starts at once
+        _cooldownPulseRun = false;
+    }
     Serial.print(F("Recharge phase "));
     Serial.println((int)phase);
 }
@@ -1304,6 +1479,13 @@ const char* StateMachine::statusText() const {
         if (!sensors.fromValid) return "From-Engine sensor offline";
         if (!sensors.chamberValid) return "Humidity live, chamber offline";
         return "Sensors ready";
+    }
+
+    if (_sensorLost && !_rechargeFailure) {
+        const uint32_t lostMs = millis() - _sensorLostSinceMs;
+        formatDuration(remain, sizeof(remain), lostMs >= SENSOR_LOSS_GRACE_MS ? 0 : SENSOR_LOSS_GRACE_MS - lostMs);
+        snprintf(buf, sizeof(buf), "Sensor dropout - holding, %s left", remain);
+        return buf;
     }
 
     switch (_mode) {
@@ -1354,7 +1536,11 @@ const char* StateMachine::statusText() const {
             switch (_rechargePhase) {
                 case RechargePhase::HEATING:
                     if (chamberRetryPending()) {
-                        snprintf(buf, sizeof(buf), "Chamber retry, 6s max");
+                        snprintf(buf, sizeof(buf), "Chamber reading retry");
+                    } else if (chamberReady() &&
+                               celsiusToFahrenheit(sensors.chamberTemp) >= (float)RECHARGE_TARGET_TEMP_F &&
+                               !ventBaselineReady()) {
+                        snprintf(buf, sizeof(buf), "At %dF, learning vent baseline", RECHARGE_TARGET_TEMP_F);
                     } else if (chamberReady()) {
                         snprintf(buf, sizeof(buf), "%s %dF, now %.0fF",
                                  _heaterOn ? "Heating to" : "Holding",
@@ -1375,7 +1561,8 @@ const char* StateMachine::statusText() const {
                     return buf;
                 case RechargePhase::COOLDOWN:
                     formatDuration(remain, sizeof(remain), phaseRemaining(RECHARGE_COOLDOWN_MS));
-                    snprintf(buf, sizeof(buf), "Cool down %s, vent outside", remain);
+                    snprintf(buf, sizeof(buf), "%s %s, vent outside",
+                             _rechargeFailure ? "Fault cool down" : "Cool down", remain);
                     return buf;
                 case RechargePhase::SAFETY_PULSE:
                     formatDuration(remain, sizeof(remain),
@@ -1422,8 +1609,11 @@ StateMachine stateMachine;
 int32_t StateMachine::ventBaseline() const { return _ventBaseline; }
 bool StateMachine::ventBaselineValid() const { return _ventBaselineValid; }
 int32_t StateMachine::ventPulsePeak() const { return _ventPulsePeak; }
-bool StateMachine::ventPulseHit() const { return _ventPulseHit; }
+bool StateMachine::ventLastStep(int32_t &step) const {
+    step = _ventLastStep;
+    return _ventLastStepValid;
+}
 uint32_t StateMachine::ventAmbientCount() const { return _ventAmbientCount; }
-uint8_t StateMachine::ventGoodPulses() const { return _ventGoodPulses; }
-uint8_t StateMachine::ventBadPulses() const { return _ventBadPulses; }
+uint16_t StateMachine::ventGoodPulses() const { return _ventGoodPulses; }
+uint16_t StateMachine::ventBadPulses() const { return _ventBadPulses; }
 

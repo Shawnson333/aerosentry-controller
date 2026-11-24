@@ -120,13 +120,16 @@ void uiUpdateAdmin() {
 
     char pressure[48] = "--";
     char pressureAvg[48] = "--";
-    if (sensors.pressureValid) {
+    if (pressureReady()) {
         snprintf(pressure, sizeof(pressure), "%ld raw", (long)sensors.ventPressureRaw);
-        if (stateMachine.ventBaselineValid()) {
-            const long step = (long)stateMachine.ventPulsePeak() - (long)stateMachine.ventBaseline();
-            snprintf(pressureAvg, sizeof(pressureAvg), "avg %ld peak %ld step %ld %s",
-                     (long)stateMachine.ventBaseline(), (long)stateMachine.ventPulsePeak(),
-                     step, step >= VENT_PRESSURE_MIN_STEP ? "OK" : "NO FLOW");
+        int32_t lastStep = 0;
+        if (stateMachine.ventBaselineValid() && stateMachine.ventLastStep(lastStep)) {
+            snprintf(pressureAvg, sizeof(pressureAvg), "avg %ld last step %ld %s",
+                     (long)stateMachine.ventBaseline(), (long)lastStep,
+                     lastStep >= VENT_PRESSURE_MIN_STEP ? "OK" : "NO FLOW");
+        } else if (stateMachine.ventBaselineValid()) {
+            snprintf(pressureAvg, sizeof(pressureAvg), "avg %ld, no pulse yet",
+                     (long)stateMachine.ventBaseline());
         } else {
             snprintf(pressureAvg, sizeof(pressureAvg), "avg learning n=%lu",
                      (unsigned long)stateMachine.ventAmbientCount());
