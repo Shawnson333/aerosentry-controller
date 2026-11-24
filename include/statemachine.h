@@ -30,6 +30,13 @@ enum class Command {
     STOP_REMOTE     // STOP from the remote page; same effect, its own stop code
 };
 
+/* Where a command came from. A remote start never arms Auto Recharge: only
+   someone at the unit can see that it is somewhere safe to get hot. */
+enum class CommandSource {
+    LOCAL,   // touch screen
+    REMOTE   // radio bridge / phone page
+};
+
 /* Every way a cycle can end. The number is the stop code shown on screen
    ("Code S09") and written to the serial log and the future SD event log.
    Never renumber or reuse a code: logs and notes refer to them. A new reason
@@ -80,7 +87,7 @@ public:
 
     /* STOP is always queued. A start is rejected when a required sensor is
        offline or another cycle is already running. */
-    bool command(Command cmd);
+    bool command(Command cmd, CommandSource source = CommandSource::LOCAL);
 
     /* nullptr when this start can be accepted. */
     const char* startBlockReason(Command cmd) const;
@@ -99,6 +106,9 @@ public:
     bool fanOn() const { return _fanOn; }
     bool valveOpen() const { return _valveEnergized; }
     bool autoRechargeAllowed() const { return config.allowAutoRecharge; }
+    /* True when the running dryer cycle may start a recharge on saturation:
+       Auto Recharge was on AND the cycle was started at the screen. */
+    bool autoRechargeArmed() const { return _autoRechargeArmed; }
     float chipTempC() const { return _chipTempC; }
 
     /* Phase line for the main screen. Valid until the next call. */
@@ -125,6 +135,8 @@ private:
 
     SystemMode _mode;
     Command _pendingCmd;
+    CommandSource _pendingSource;
+    bool _autoRechargeArmed;        // This dryer cycle may start a recharge (local start + setting on)
     StopReason _stopReason;
     const char* _stopMessage;       // Points at _stopText while a message waits for the UI
     char _stopText[360];

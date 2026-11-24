@@ -4,6 +4,7 @@ Serves the remote page and talks to the Heltec over USB. The Heltec forwards
 commands to the Waveshare on ESP-NOW. Bind is localhost only.
 """
 import json
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +16,9 @@ from serial.tools import list_ports
 
 ROOT = Path(__file__).resolve().parents[1] / "web"
 PORT = 8080
+# The controller sends STATUS every 2 s. Older than this, the page says the
+# values are stale instead of showing an old mode as if it were current.
+STATUS_STALE_S = 6.0
 
 status = {
     "connected": False,
@@ -41,6 +45,7 @@ status_lock = threading.Lock()
 port_lock = threading.Lock()
 link = None
 next_seq = 1
+last_status_at = None  # time.monotonic() of the last STATUS line
 
 
 def parse_number(text):
@@ -53,7 +58,9 @@ def parse_number(text):
 
 
 def apply_status(fields):
+    global last_status_at
     with status_lock:
+        last_status_at = time.monotonic()
         status["connected"] = True
         status["radio"] = True
         status["mode"] = fields.get("mode", "Unknown")
@@ -84,10 +91,16 @@ def apply_ack(fields):
 def parse_line(line):
     if line.startswith("STATUS "):
         fields = {}
-        for part in line[7:].split():
+        # The mode can contain a space ("Dryer Manual"), so take it up to the next field.
+        mode = re.match(r"STATUS mode=(.*?) running=", line)
+        rest = line[7:]
+        if mode:
+            fields["mode"] = mode.group(1)
+            rest = line[mode.end() - len("running="):]
+        for part in rest.split():
             if "=" in part:
                 key, value = part.split("=", 1)
-                fields[key] = value
+                fields.setdefault(key, value)
         if "text" not in fields:
             apply_status(fields)
     elif line.startswith("ACK "):
@@ -175,7 +188,14 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/status":
             with status_lock:
-                self.send_json(dict(status))
+                snapshot = dict(status)
+                age = None if last_status_at is None else time.monotonic() - last_status_at
+            snapshot["statusAgeSeconds"] = None if age is None else round(age)
+            if age is not None and age > STATUS_STALE_S:
+                # Never present an old mode as current (the stale "Recharge" bug).
+                snapshot["connected"] = False
+                snapshot["mode"] = "Unknown (no status for %d s)" % round(age)
+            self.send_json(snapshot)
             return
         if path == "/":
             path = "/index.html"
@@ -210,9 +230,12 @@ class Handler(BaseHTTPRequestHandler):
             "purge": "PURGE",
             "manual": "MANUAL",
             "auto": "AUTO",
-            "recharge": "RECHARGE",
             "stop": "STOP",
         }
+        if payload.get("command") == "recharge":
+            self.send_json({"ok": False, "accepted": False,
+                            "text": "Recharge must be started at the unit, after its safety check."})
+            return
         name = names.get(payload.get("command"))
         if name is None:
             self.send_json({"ok": False, "accepted": False, "text": "Unknown command."}, 400)
@@ -222,7 +245,7 @@ class Handler(BaseHTTPRequestHandler):
             int(payload.get("dryerOnMinutes", 3)),
             int(payload.get("dryerOffHours", 1)),
             int(payload.get("dryerTargetRH", 20)),
-            1 if payload.get("autoRecharge") else 0,
+            0,  # Auto Recharge is set only at the unit; the controller ignores this field
         )
         self.send_json(result)
 

@@ -42,6 +42,7 @@
         <dt>Chip</dt><dd id="chip">—</dd>
         <dt>Outputs</dt><dd id="outputs">—</dd>
         <dt>Valve</dt><dd id="valve">—</dd>
+        <dt>Auto Recharge</dt><dd id="autoRecharge">—</dd>
         <dt>Last reply</dt><dd id="reply">—</dd>
       </dl>
     </div>
@@ -49,9 +50,11 @@
       <button type="button" data-command="purge" disabled>Purge</button>
       <button type="button" data-command="manual" disabled>Manual dryer</button>
       <button type="button" data-command="auto" disabled>Auto dryer</button>
-      <button type="button" data-command="recharge" disabled>Recharge</button>
       <button type="button" class="stop" data-command="stop" disabled>Stop</button>
     </div>
+    <p class="banner" style="margin-top:12px">Recharge and Auto Recharge are started only at the unit,
+      after its on-screen safety check. Nobody here can see that the unit is somewhere safe to get hot
+      and expel water. Remote dryer starts always run with Auto Recharge off.</p>
     <label>Manual dryer on time
       <select id="onMin"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
     </label>
@@ -60,10 +63,6 @@
     </label>
     <label>Auto target, From-Engine %
       <select id="target"><option>15</option><option selected>20</option><option>25</option><option>30</option></select>
-    </label>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:12px">
-      <input type="checkbox" id="autoRechargeCheck">
-      <span style="color:var(--muted)">Allow Auto Recharge Cycles</span>
     </label>
   </main>
   <script>
@@ -89,10 +88,14 @@
       const reply = document.getElementById("reply");
       reply.textContent = s.lastReply || "—";
       reply.className = s.accepted === true ? "ok" : s.accepted === false ? "bad" : "";
-      document.getElementById("autoRechargeCheck").checked = !!s.autoRecharge;
+      document.getElementById("autoRecharge").textContent = s.connected
+        ? (s.autoRecharge ? (s.running ? "Armed for this cycle" : "On at the unit") : "Off")
+        : "—";
       buttons.forEach(button => button.disabled = !s.connected);
       if (!s.connected) {
-        banner.textContent = "Bridge is open, but the Heltec radio is not reporting yet.";
+        banner.textContent = s.statusAgeSeconds != null
+          ? "No status from the controller for " + s.statusAgeSeconds + " s. Values below are old."
+          : "Bridge is open, but the Heltec radio is not reporting yet.";
       } else if (!s.relays) {
         banner.textContent = "Live link. Humidity stays offline until the sensor node is in range. Starts are refused while the relay board is at home.";
       } else {
@@ -118,8 +121,7 @@
           command: button.dataset.command,
           dryerOnMinutes: Number(document.getElementById("onMin").value),
           dryerOffHours: Number(document.getElementById("offHr").value),
-          dryerTargetRH: Number(document.getElementById("target").value),
-          autoRecharge: document.getElementById("autoRechargeCheck").checked
+          dryerTargetRH: Number(document.getElementById("target").value)
         })
       });
       const ack = await response.json();

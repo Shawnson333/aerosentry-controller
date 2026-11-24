@@ -195,6 +195,8 @@ static void printStopLine(StopReason reason, SystemMode mode, const char* messag
 StateMachine::StateMachine()
     : _mode(SystemMode::IDLE)
     , _pendingCmd(Command::NONE)
+    , _pendingSource(CommandSource::LOCAL)
+    , _autoRechargeArmed(false)
     , _stopReason(StopReason::NONE)
     , _stopMessage(nullptr)
     , _manualPhase(ManualPhase::ON)
@@ -309,7 +311,9 @@ void StateMachine::begin() {
 bool StateMachine::handleCommand() {
     if (_pendingCmd == Command::NONE) return false;
     Command cmd = _pendingCmd;
+    const CommandSource source = _pendingSource;
     _pendingCmd = Command::NONE;
+    _pendingSource = CommandSource::LOCAL;
     if (cmd == Command::STOP) {
         stopWith(StopReason::USER);
         return true;
@@ -319,6 +323,10 @@ bool StateMachine::handleCommand() {
         return true;
     }
     if (_mode != SystemMode::IDLE || startBlockReason(cmd) != nullptr) return true;
+    // Auto Recharge is armed per cycle, only for a dryer started at the screen.
+    _autoRechargeArmed = source == CommandSource::LOCAL && config.allowAutoRecharge &&
+                         (cmd == Command::START_DRYER_MANUAL || cmd == Command::START_DRYER_AUTO);
+    if (_autoRechargeArmed) Serial.println(F("Auto Recharge armed for this cycle"));
     if (cmd == Command::START_PURGE) enterMode(SystemMode::PURGE);
     else if (cmd == Command::START_DRYER_MANUAL) {
         _autoQuickCycles = 0;
@@ -440,7 +448,7 @@ bool StateMachine::ventSensorOk() const {
 #endif
 }
 
-bool StateMachine::command(Command cmd) {
+bool StateMachine::command(Command cmd, CommandSource source) {
     if (cmd == Command::NONE) return false;
     const bool stop = cmd == Command::STOP || cmd == Command::STOP_REMOTE;
     if (!stop && startBlockReason(cmd) != nullptr) {
@@ -448,6 +456,7 @@ bool StateMachine::command(Command cmd) {
         return false;
     }
     _pendingCmd = cmd;
+    _pendingSource = source;
     return true;
 }
 
@@ -558,6 +567,7 @@ void StateMachine::stopWith(StopReason reason, const char* detail, bool afterCoo
     _inGracePeriod = false;
     _pendingCmd = Command::NONE;
     _sensorLost = false;
+    _autoRechargeArmed = false;
     resetSaturation();
     relay.allOff();
     _appliedPump = false;
@@ -1348,7 +1358,7 @@ void StateMachine::checkSaturation() {
     if (now - _saturationMark >= SAT_HOLD_MS) {
         const char* detail = nullptr;
         if (_mode == SystemMode::DRYER_MANUAL || _mode == SystemMode::DRYER_AUTO) {
-            if (config.allowAutoRecharge) {
+            if (_autoRechargeArmed) {
                 // An automatic recharge needs the same readings as one started on
                 // the screen. enterMode() does not check them, so check here.
                 const char* block = rechargeSensorBlockReason();

@@ -69,6 +69,17 @@
                              (1 << RELAY_BIT_VALVE_TO) | (1 << RELAY_BIT_VALVE_FROM) | \
                              (1 << RELAY_BIT_AUX_AC1) | (1 << RELAY_BIT_AUX_AC2))
 
+/* --- Remote control (user decision 2026-11-24) ---
+   Starts are accepted only from the radio bridge Heltec. Its MAC is the
+   sender of every "Heltec beacon" line in the bench logs (37,165 beacons in
+   the 2026-11-23 dryer run). STOP is accepted from any sender.
+   Recharge is never started remotely, and a remote dryer start never arms
+   Auto Recharge: nobody at a phone can see that the unit is somewhere safe
+   to get hot and expel water. */
+#define REMOTE_BRIDGE_MAC           {0x10, 0xBD, 0xA3, 0x5A, 0x7C, 0x94}
+#define REMOTE_REQUIRE_BRIDGE_MAC   1
+#define REMOTE_RECHARGE_ALLOWED     0
+
 /* --- Safety / cycle timing (best guesses; tune after testing) --- */
 #define SAT_LIMIT_RH            40.0f   // To-Engine RH hard-stop (%). Not used in Recharge.
 #define SAT_HOLD_MS             30000UL // Continuous time above limit while the pump is on

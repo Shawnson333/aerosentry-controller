@@ -474,6 +474,94 @@ static void testFlakyToEngine() {
     EXPECT(!logHas("Recharge failure"), "false failure");
 }
 
+static void sendRemote(const uint8_t* mac, uint8_t code, uint8_t autoRecharge = 0) {
+    static uint16_t sequence = 100;
+    LinkCommand cmd = {};
+    cmd.magic = AEROSENTRY_LINK_MAGIC;
+    cmd.kind = LINK_KIND_COMMAND;
+    cmd.command = code;
+    cmd.dryerOnMinutes = 3;
+    cmd.dryerOffHours = 1;
+    cmd.dryerTargetRH = 20;
+    cmd.autoRecharge = autoRecharge;
+    cmd.sequence = sequence++;
+    hostEspNowReceive(mac, (const uint8_t*)&cmd, sizeof(cmd));
+}
+
+static void testRemoteRechargeRefused() {
+    reset("Remote Recharge from the bridge is refused");
+    Plant p;
+    runFor(p, 40000);
+    sendRemote(BRIDGE_MAC, REMOTE_RECHARGE);
+    runFor(p, 500);
+    EXPECT(idle(), "a remote recharge started");
+    EXPECT(logHas("Recharge must be started at the unit"), "refusal text missing");
+}
+
+static void testStrangerStartIgnored() {
+    reset("Start from a device that is not the bridge is ignored");
+    Plant p;
+    runFor(p, 5000);
+    sendRemote(STRANGER_MAC, REMOTE_PURGE);
+    runFor(p, 500);
+    EXPECT(idle(), "a stranger started the pump");
+    EXPECT(logHas("ignored (not the bridge)"), "ignored start not logged");
+}
+
+static void testStrangerStopAccepted() {
+    reset("STOP from any device is accepted");
+    Plant p;
+    runFor(p, 5000);
+    EXPECT(stateMachine.command(Command::START_PURGE), "purge start refused");
+    runFor(p, 3000);
+    sendRemote(STRANGER_MAC, REMOTE_STOP);
+    runFor(p, 500);
+    EXPECT(idle(), "stranger STOP ignored");
+    EXPECT(logHas("Stop: S02 REMOTE_STOP"), "no S02 stop");
+}
+
+static void testRemoteDryerNeverArmsAutoRecharge() {
+    reset("Remote dryer start with Auto Recharge on: saturation stops, no unattended recharge");
+    Plant p;
+    stateMachine.config.allowAutoRecharge = true;
+    runFor(p, 5000);
+    sendRemote(BRIDGE_MAC, REMOTE_DRYER_MANUAL, 1);
+    runFor(p, 5000);
+    EXPECT(stateMachine.mode() == SystemMode::DRYER_MANUAL, "remote manual dryer did not start");
+    EXPECT(logHas("Auto Recharge stays off for remote starts"), "ack does not say Auto Recharge is off");
+    EXPECT(!stateMachine.autoRechargeArmed(), "remote start armed Auto Recharge");
+    p.toRH = 55.0f;
+    EXPECT(runUntil(p, idle, 60000), "no saturation stop");
+    EXPECT(logHas("Stop: S03 SATURATED"), "no S03 stop");
+    EXPECT(!logHas("Mode -> Recharge"), "remote start led to a recharge");
+}
+
+static void testRemoteCannotChangeAutoRechargeSetting() {
+    reset("Remote commands never change the Auto Recharge setting");
+    Plant p;
+    stateMachine.config.allowAutoRecharge = false;
+    runFor(p, 5000);
+    sendRemote(BRIDGE_MAC, REMOTE_STOP, 1);
+    sendRemote(BRIDGE_MAC, REMOTE_RECHARGE, 1);
+    runFor(p, 500);
+    sendRemote(BRIDGE_MAC, REMOTE_DRYER_AUTO, 1);
+    runFor(p, 500);
+    EXPECT(!stateMachine.config.allowAutoRecharge, "remote turned Auto Recharge on");
+}
+
+static void testLocalDryerArmsAutoRecharge() {
+    reset("Local dryer start with Auto Recharge on: saturation starts a recharge");
+    Plant p;
+    stateMachine.config.allowAutoRecharge = true;
+    runFor(p, 40000);
+    EXPECT(stateMachine.command(Command::START_DRYER_MANUAL), "manual start refused");
+    runFor(p, 5000);
+    EXPECT(stateMachine.autoRechargeArmed(), "local start did not arm Auto Recharge");
+    p.toRH = 55.0f;
+    EXPECT(runUntil(p, [] { return stateMachine.mode() == SystemMode::RECHARGE; }, 60000),
+           "saturation did not start a recharge");
+}
+
 static void testRestartReport() {
     reset("Restart during a cycle: S18 message names the cycle and the cause");
     stateMachine.reportRestart(SystemMode::RECHARGE, "The controller froze and the watchdog restarted it.");
@@ -502,6 +590,12 @@ int main(int argc, char** argv) {
     testMaxRunTime();
     testFlakyPressure();
     testFlakyToEngine();
+    testRemoteRechargeRefused();
+    testStrangerStartIgnored();
+    testStrangerStopAccepted();
+    testRemoteDryerNeverArmsAutoRecharge();
+    testRemoteCannotChangeAutoRechargeSetting();
+    testLocalDryerArmsAutoRecharge();
     testRestartReport();
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
