@@ -206,7 +206,7 @@ void radioLinkAccept(const uint8_t *mac, const uint8_t *data, int len) {
 }
 
 void radioLinkUpdate() {
-    LinkCommand command;
+    LinkCommand command = {};
     bool haveCommand = false;
     bool fromBridge = false;
     uint8_t mac[6] = {};

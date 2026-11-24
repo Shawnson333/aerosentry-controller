@@ -1,6 +1,6 @@
 /* ========================================================================
    SENSORS — ESP-NOW receiver (Waveshare side)
-   Accepts the shared SensorPacket from the XIAO on a fixed channel.
+   Accepts the shared SensorPacket from the Heltec V4.3 sensor node on a fixed channel.
    A packet with all validity flags clear still counts as a live radio.
    ======================================================================== */
 

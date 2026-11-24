@@ -8,8 +8,8 @@
    RELAY DRIVER — XL9535 8-channel I2C expander
    K2 pump, K3 heater, K4 case fan, K5/K6 the two recharge valves.
    K1, K7, K8 are aux outputs and are enabled in the driver mask, but no
-   cycle drives them. The bench relay board has a faulty K1 channel, so
-   leave bit 0 alone until the custom carrier board replaces that board.
+   cycle drives them. K1 has been reported dead on three boards with no
+   known software cause; Admin > Relay test checks it on the bench.
    ======================================================================== */
 
 class RelayDriver {

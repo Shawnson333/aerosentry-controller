@@ -63,7 +63,7 @@ void uiShowMain() {
         dateTimeBtn = lv_btn_create(mainScreen);
         lv_obj_set_size(dateTimeBtn, 280, 50);
         lv_obj_align(dateTimeBtn, LV_ALIGN_TOP_MID, 0, 85);
-        lv_obj_set_style_bg_color(dateTimeBtn, lv_color_hex(0x1A2E4A), 0);
+        lv_obj_set_style_bg_color(dateTimeBtn, lv_color_hex(UI_PANEL_COLOR), 0);
         lv_obj_set_style_radius(dateTimeBtn, 8, 0);
         lv_obj_add_event_cb(dateTimeBtn, cbDateTime, LV_EVENT_CLICKED, nullptr);
         dateTimeLabel = lv_label_create(dateTimeBtn);

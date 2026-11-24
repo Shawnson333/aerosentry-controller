@@ -57,7 +57,7 @@ void uiShowAdmin() {
         lv_obj_t* diagBtn = lv_btn_create(adminScreen);
         lv_obj_set_size(diagBtn, 280, 60);
         lv_obj_align(diagBtn, LV_ALIGN_BOTTOM_LEFT, 40, -24);
-        lv_obj_set_style_bg_color(diagBtn, lv_color_hex(0x1A2E4A), 0);
+        lv_obj_set_style_bg_color(diagBtn, lv_color_hex(UI_PANEL_COLOR), 0);
         lv_obj_add_event_cb(diagBtn, cbToggleDiag, LV_EVENT_CLICKED, nullptr);
         adminDiagBtnLabel = lv_label_create(diagBtn);
         lv_label_set_text(adminDiagBtnLabel, "Hide main diag line");
@@ -82,7 +82,7 @@ void uiShowAdmin() {
         lv_obj_t* backLabel = lv_label_create(back);
         lv_label_set_text(backLabel, "Back");
         lv_obj_center(backLabel);
-        lv_obj_set_style_text_color(backLabel, lv_color_hex(0x0A1628), 0);
+        lv_obj_set_style_text_color(backLabel, lv_color_hex(UI_BG_COLOR), 0);
         lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_20, 0);
     }
 

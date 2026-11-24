@@ -41,7 +41,7 @@ static lv_obj_t* makeAdjustButton(lv_obj_t* parent, int16_t x, int16_t y,
     lv_obj_t* button = lv_btn_create(parent);
     lv_obj_set_size(button, 70, 50);
     lv_obj_set_pos(button, x, y);
-    lv_obj_set_style_bg_color(button, lv_color_hex(0x1A2E4A), 0);
+    lv_obj_set_style_bg_color(button, lv_color_hex(UI_PANEL_COLOR), 0);
     lv_obj_add_event_cb(button, cbAdjust, LV_EVENT_CLICKED, (void*)code);
     lv_obj_t* label = lv_label_create(button);
     lv_label_set_text(label, text);

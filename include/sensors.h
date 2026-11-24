@@ -5,8 +5,9 @@
 #include "sensor_packet.h"
 
 /* ========================================================================
-   SENSOR DATA — ESP-NOW packet from XIAO ESP32-C3
-   The XIAO sends both humidity sensors plus the chamber thermistor.
+   SENSOR DATA — ESP-NOW packet from the Heltec V4.3 sensor node
+   Both humidity probes, the chamber thermistor, the valve shunt and the
+   vent pressure module, about once a second (each packet sent twice).
    ======================================================================== */
 
 struct SensorReading {

@@ -75,13 +75,13 @@ void uiShowWarning(const char* message, lv_event_cb_t onContinue, const char* bu
         warningContinueLabel = lv_label_create(warningContinueBtn);
         lv_label_set_text(warningContinueLabel, "Continue");
         lv_obj_center(warningContinueLabel);
-        lv_obj_set_style_text_color(warningContinueLabel, lv_color_hex(0x0A1628), 0);
+        lv_obj_set_style_text_color(warningContinueLabel, lv_color_hex(UI_BG_COLOR), 0);
         lv_obj_set_style_text_font(warningContinueLabel, &lv_font_montserrat_20, 0);
 
         warningAltBtn = lv_btn_create(warningScreen);
         lv_obj_set_size(warningAltBtn, 300, 70);
         lv_obj_align(warningAltBtn, LV_ALIGN_CENTER, 170, 90);
-        lv_obj_set_style_bg_color(warningAltBtn, lv_color_hex(0x1A2E4A), 0);
+        lv_obj_set_style_bg_color(warningAltBtn, lv_color_hex(UI_PANEL_COLOR), 0);
         lv_obj_set_style_radius(warningAltBtn, 10, 0);
         lv_obj_add_event_cb(warningAltBtn, cbAlternate, LV_EVENT_CLICKED, nullptr);
         warningAltLabel = lv_label_create(warningAltBtn);

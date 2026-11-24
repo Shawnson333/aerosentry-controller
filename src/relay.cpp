@@ -11,7 +11,8 @@
      bit 6 / K7 = AUX, 120 V AC
      bit 7 / K8 = AUX, 120 V AC
    All eight bits are allowed by RELAY_ALLOWED_MASK. The aux channels are
-   not driven by any cycle.
+   not driven by any cycle. The register sequence matches the reference
+   driver github.com/mcauser/micropython-xl9535-kxv5-relay.
    Port 1 is unused and always written off.
    ======================================================================== */
 

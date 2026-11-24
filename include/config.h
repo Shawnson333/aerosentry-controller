@@ -50,14 +50,16 @@
 /* --- XL9535 Relay Expander --- */
 /* Board is marked XL9535. DIP address 0x21. Active-high outputs.
    Register writes contain port 0 then port 1.
-   K1 / P0.0 does not latch or drive. Leave it unused. */
+   K1 / P0.0 has been reported dead on three relay boards. The driver matches
+   the reference XL9535 driver, so the cause is not known (2026-11-24). Leave
+   it unused until Admin > Relay test has been run on the bench. */
 #define RELAY_DRIVER_ENABLED    1
 #define XL9535_ADDR             0x21
 
 /* --- DS3231M real-time clock, on the shared I2C bus --- */
 #define DS3231_ADDR             0x68
 
-/* Relay map, XL9535 port 0, active-high. K1 is P0.0 and does not drive.
+/* Relay map, XL9535 port 0, active-high. K1 is P0.0 (reported dead, see above).
    K2 was confirmed on P0.1. K3-K8 follow that order from the port-0 sweep.
       bit 1 / K2 = Pump
       bit 2 / K3 = Heater mat
@@ -131,31 +133,17 @@
 #define SAFETY_PULSE_MS         10000UL    // Safety check pump run 10 sec
 #define SAFETY_SAMPLE_INTERVAL_MS 60000UL  // Safety check sample delay 1 min
 #define SAFETY_SAMPLE_COUNT     2          // Safety check runs twice
-#define RECHARGE_FAILED_FAN_MAX_MS  7200000UL  // Failed recharge fan-hold 2 h backstop
-#define RECHARGE_FAILED_FAN_TEMP_F  120.0f     // Failed fan-hold + cooldown early-exit temp
+#define RECHARGE_FAILED_FAN_TEMP_F  120.0f     // Cool down (normal and failure) ends at or below this
 
 /* Recharge temperature (2026-11-21). Heat-up ramps the heater 30 s on / 15 s off
    until the chamber first reaches 245F. Then the normal hold: heater off at
    245F, back on at 240F (5F hysteresis).
    Software thermal trip 255F (THERMAL_CHAMBER_F below uses this value).
    Mechanical thermal fuse 266F (hardware, not firmware). */
-#define RECHARGE_TEST_MODE       1
-#if RECHARGE_TEST_MODE
 #define RECHARGE_TARGET_TEMP_F      245
 #define RECHARGE_TEMP_HYSTERESIS_F  5
-#else
-#define RECHARGE_TARGET_TEMP_F      245
-#define RECHARGE_TEMP_HYSTERESIS_F  5
-#endif
 #define RECHARGE_SOFT_OVERTEMP_F  255    // Software thermal trip, stops all outputs
 #define RECHARGE_HARD_OVERTEMP_F  266    // Mechanical thermal fuse, hardware only (documentation)
-
-/* Valve position verification by humidity trend is retired. The vent pressure
-   check is a direct mechanical measurement and does not depend on ambient
-   humidity, which made the old comparison unreliable in humid air and in a
-   humid engine. The trend code is kept in statemachine.cpp for reference but
-   is not compiled in. */
-#define VALVE_TREND_CHECK_ENABLED 0
 
 /* Valve coil current sense. The sensor node reads a 1-ohm shunt in the valve
    12 V return on GPIO 3. The 4 W coil draws about 0.33 A, so the node reports
@@ -168,10 +156,6 @@
 #define VALVE_CURRENT_CHECK_MS     1000   // Cadence of the current check
 #define VALVE_CURRENT_FAULT_COUNT  3      // Consecutive low readings to alarm
 
-/* The old From-Engine climb ladder is retired in favour of the vent pressure
-   check. The code is kept but not compiled in. */
-#define VALVE_TREND_CHECK_ENABLED 0
-
 /* Vent pressure check. The sensor node reads a one-port gauge pressure module
    on the dump line, upstream of the vent. When the pump runs with the dump
    valve open, the vent line must show a pressure step. No step means the
@@ -183,12 +167,12 @@
    those samples, re-learned on every recharge cycle, so barometric drift
    cannot fake a good step. A pulse is "good" only if the raw reading rises
    to >= baseline + 20,000 counts at any point during the 10 s pump pulse.
-   The first pulse also flushes the soaked probes: it must also hit 20,000
-   on that same 10 s window. */
+   One pulse without the step stops the cycle (S09). Since 2026-11-24 the
+   check fails closed: no recharge, and no pump pulse, without a fresh
+   pressure reading (S08 if it goes missing). Cool down and safety pulses
+   are judged too. */
 #define VENT_PRESSURE_CHECK_ENABLED  1
 #define VENT_PRESSURE_MIN_STEP      20000   // Raw counts above the ambient average
-#define VENT_PRESSURE_IDLE_BASELINE  0     // Baseline learned while the pump is off
-#define VENT_PRESSURE_SAMPLES       6     // Pulses required before alarming (unchanged)
 #define VENT_PRESSURE_LEARN_MS      30000UL // Baseline learning window at start
 #define VENT_PRESSURE_AMBIENT_SAMPLE_MS 30000UL // Take an ambient sample every 30 s while pump OFF
 #define LOG_INTERVAL_MS         30000UL    // Log every sensor while a cycle runs
@@ -211,6 +195,7 @@
 /* --- UI Colors (dark theme) --- */
 #define UI_BG_COLOR         0x0A1628  // Deep navy background
 #define UI_PANEL_COLOR      0x1A2E4A  // Secondary buttons, panels
+#define UI_INFO_COLOR       0x3399FF  // Auto Cycle button
 #define UI_ACCENT_COLOR     0x00FF88  // Green accent
 #define UI_WARN_COLOR       0xFF4444  // Red for warnings/stop
 #define UI_TEXT_COLOR       0xFFFFFF  // White text

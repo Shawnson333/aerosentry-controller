@@ -63,7 +63,7 @@ static void makePlusMinus(lv_obj_t* parent, int16_t x, int16_t y,
     lv_obj_t* btnPlus = lv_btn_create(parent);
     lv_obj_set_size(btnPlus, 70, 60);
     lv_obj_set_pos(btnPlus, x + 85, y);
-    lv_obj_set_style_bg_color(btnPlus, lv_color_hex(0x1A2E4A), 0);
+    lv_obj_set_style_bg_color(btnPlus, lv_color_hex(UI_PANEL_COLOR), 0);
     lv_obj_add_event_cb(btnPlus, cbPlus, LV_EVENT_CLICKED, nullptr);
     lv_obj_t* lblPlus = lv_label_create(btnPlus);
     lv_label_set_text(lblPlus, "+");
@@ -73,7 +73,7 @@ static void makePlusMinus(lv_obj_t* parent, int16_t x, int16_t y,
     lv_obj_t* btnMinus = lv_btn_create(parent);
     lv_obj_set_size(btnMinus, 70, 60);
     lv_obj_set_pos(btnMinus, x, y);
-    lv_obj_set_style_bg_color(btnMinus, lv_color_hex(0x1A2E4A), 0);
+    lv_obj_set_style_bg_color(btnMinus, lv_color_hex(UI_PANEL_COLOR), 0);
     lv_obj_add_event_cb(btnMinus, cbMinus, LV_EVENT_CLICKED, nullptr);
     lv_obj_t* lblMinus = lv_label_create(btnMinus);
     lv_label_set_text(lblMinus, "-");
@@ -145,7 +145,7 @@ void uiShowAutoCycle() {
         lv_obj_t* btnBack = lv_btn_create(autoScreen);
         lv_obj_set_size(btnBack, btnW, btnH);
         lv_obj_set_pos(btnBack, startX, 350);
-        lv_obj_set_style_bg_color(btnBack, lv_color_hex(0x1A2E4A), 0);
+        lv_obj_set_style_bg_color(btnBack, lv_color_hex(UI_PANEL_COLOR), 0);
         lv_obj_set_style_radius(btnBack, 8, 0);
         lv_obj_add_event_cb(btnBack, cbBack, LV_EVENT_CLICKED, nullptr);
         lv_obj_t* lblBack = lv_label_create(btnBack);

@@ -1,7 +1,8 @@
 /* ========================================================================
    MODE STATE MACHINE
    Purge / manual: To-Engine 40% hard-stop only.
-   Auto: both sensors. Recharge: To-Engine temp + RH, 40% ignored.
+   Auto: both sensors. Recharge: chamber, To-Engine and vent pressure, 40% ignored.
+   Every stop has a code (S01-S18); see docs/ERROR_CODES.md.
    ======================================================================== */
 
 #include "statemachine.h"
@@ -211,6 +212,11 @@ StateMachine::StateMachine()
     , _pumpOn(false)
     , _heaterOn(false)
     , _fanOn(false)
+    , _appliedPump(false)
+    , _appliedHeater(false)
+    , _appliedFan(false)
+    , _chipHot(false)
+    , _chipTempC(NAN)
     , _valveEnergized(false)
     , _appliedValve(false)
     , _rechargeTriggeredByCycle(false)
@@ -237,9 +243,6 @@ StateMachine::StateMachine()
     , _ventLastStepValid(false)
     , _cooldownWindow(UINT32_MAX)
     , _cooldownPulseRun(false)
-    , _valveBaselineRH(-1.0f)
-    , _valvePulseCount(0)
-    , _valveHighCount(0)
     , _valveNoCurrentCount(0)
     , _valveCommandMs(0)
     , _valveCheckMs(0)
@@ -247,15 +250,9 @@ StateMachine::StateMachine()
     , _safetyCheckCount(0)
     , _rechargeStartEpoch(0)
     , _rechargeEndEpoch(0)
-    , _appliedPump(false)
-    , _appliedHeater(false)
-    , _appliedFan(false)
-    , _chipHot(false)
-    , _chipTempC(NAN)
     , _purgeSeen(false)
     , _purgeQualified(false)
     , _thermalLatched(false)
-    , _lastPurgeMs(0)
     , _purgeEpoch(0)
     , _rechargeGoodCycles(0)
 {
@@ -288,9 +285,6 @@ void StateMachine::begin() {
     _ventGoodPulses = 0;
     _ventBadPulses = 0;
     _pulseCount = 0;
-    _valveBaselineRH = -1.0f;
-    _valvePulseCount = 0;
-    _valveHighCount = 0;
     _valveNoCurrentCount = 0;
     _valveCommandMs = 0;
     _valveCheckMs = 0;
@@ -539,9 +533,6 @@ void StateMachine::enterMode(SystemMode newMode) {
             _cooldownWindow = UINT32_MAX;
             _cooldownPulseRun = false;
             _pulseCount = 0;
-            _valveBaselineRH = -1.0f;
-            _valvePulseCount = 0;
-            _valveHighCount = 0;
             _valveNoCurrentCount = 0;
             _valveCommandMs = millis();
             _valveCheckMs = 0;
@@ -587,9 +578,6 @@ void StateMachine::stopWith(StopReason reason, const char* detail, bool afterCoo
         _rechargeTimedOut = false;
         _rechargeTriggeredByCycle = false;
         _rechargeResumeMode = SystemMode::IDLE;
-        _valveBaselineRH = -1.0f;
-        _valvePulseCount = 0;
-        _valveHighCount = 0;
         _valveNoCurrentCount = 0;
         Serial.println(F("Recharge ended - valve closed loop"));
     }
@@ -611,7 +599,6 @@ void StateMachine::updatePurge() {
     if (!_purgeQualified && (millis() - _modeStartTime) >= PURGE_QUALIFY_MS) {
         _purgeQualified = true;
         _purgeSeen = true;
-        _lastPurgeMs = millis();
         _purgeEpoch = systemClockEpoch();
         systemClockSavePurge();
         Serial.println(F("Purge qualified after 60 seconds"));
@@ -1108,47 +1095,6 @@ void StateMachine::rechargeFailureCooldown(StopReason reason) {
     }
 }
 
-/* Valve position verification, judged only on end-of-pulse From-Engine
-   samples. Pulse 1 is a flush: the probe was soaking in chamber steam while
-   the pump was off and needs a few seconds under flow. Pulses 2-3 set the
-   baseline (lowest reading wins). After that, consecutive samples at or above
-   baseline + threshold mean regen exhaust is entering the engine. */
-bool StateMachine::evaluateValveVerification() {
-#if VALVE_TREND_CHECK_ENABLED
-    /* Retired humidity-trend check. Kept for reference only. The vent
-       pressure check replaced it. These constants are local so the block
-       still compiles if it is ever switched back on. */
-    const uint8_t baselinePulses = 2;
-    const float riseRH = 10.0f;
-    const uint8_t consecutive = 2;
-
-    _valvePulseCount++;
-    const float fromRH = sensors.fromEngineRH;
-    if (_valvePulseCount == 1) {
-        Serial.println(F("Valve verify: flush pulse, From-Engine not judged"));
-        return true;
-    }
-    if (_valvePulseCount <= (uint8_t)(1 + baselinePulses)) {
-        if (_valveBaselineRH < 0.0f || fromRH < _valveBaselineRH) {
-            _valveBaselineRH = fromRH;
-        }
-        Serial.printf("Valve verify: baseline %.1f%%\n", _valveBaselineRH);
-        return true;
-    }
-    if (fromRH >= _valveBaselineRH + riseRH) {
-        if (_valveHighCount < 255) _valveHighCount++;
-    } else {
-        _valveHighCount = 0;
-    }
-    if (_valveHighCount >= consecutive) {
-        Serial.println(F("Valve verify: From-Engine climbing - exhaust entering engine"));
-        stopWith(StopReason::VALVE_SUSPECT);
-        return false;
-    }
-#endif
-    return true;
-}
-
 /* Learn the idle vent pressure while the pump is not running. The baseline
    must be taken with the line un-pressurised; a pump-on reading would make
    every later pulse look like "no flow". Called every loop while the vent
@@ -1593,33 +1539,10 @@ const char* StateMachine::statusText() const {
     return systemModeName(_mode);
 }
 
-uint32_t StateMachine::timeRemainingMs() const {
-    if (_mode == SystemMode::IDLE) return 0;
-    switch (_mode) {
-        case SystemMode::PURGE:
-        case SystemMode::DRYER_AUTO:
-            return 0xFFFFFFFFUL;
-        case SystemMode::DRYER_MANUAL:
-            if (_manualPhase == ManualPhase::ON) {
-                return phaseRemaining((uint32_t)config.dryerOnMinutes * 60000UL);
-            }
-            return phaseRemaining((uint32_t)config.dryerOffHours * 3600000UL);
-        case SystemMode::RECHARGE: {
-            if (!_chamberReachedTarget) return RECHARGE_MAX_MS;  // clock starts at target
-            uint32_t elapsed = millis() - _chamberReachedMs;
-            if (elapsed >= RECHARGE_MAX_MS) return 0;
-            return RECHARGE_MAX_MS - elapsed;
-        }
-        default:
-            return 0;
-    }
-}
-
 StateMachine stateMachine;
 
 int32_t StateMachine::ventBaseline() const { return _ventBaseline; }
 bool StateMachine::ventBaselineValid() const { return _ventBaselineValid; }
-int32_t StateMachine::ventPulsePeak() const { return _ventPulsePeak; }
 bool StateMachine::ventLastStep(int32_t &step) const {
     step = _ventLastStep;
     return _ventLastStepValid;

@@ -9,7 +9,8 @@
    MODE STATE MACHINE
    Purge and manual dryer watch To-Engine only.
    Auto dryer watches both sensors.
-   Recharge watches the chamber thermistor and To-Engine humidity, and ignores 40%.
+   Recharge watches the chamber thermistor, To-Engine humidity and the vent
+   pressure, and ignores 40%.
    ======================================================================== */
 
 enum class SystemMode {
@@ -115,7 +116,6 @@ public:
     const char* statusText() const;
     int32_t ventBaseline() const;
     bool ventBaselineValid() const;
-    int32_t ventPulsePeak() const;
     /* Step of the last judged pump pulse (peak minus baseline). False if none yet. */
     bool ventLastStep(int32_t &step) const;
     uint32_t ventAmbientCount() const;
@@ -126,7 +126,6 @@ public:
     bool hasPurgeRecord() const { return _purgeSeen; }
 
     ModeConfig config;
-    uint32_t timeRemainingMs() const;
 
 private:
     enum class ManualPhase { ON, OFF };
@@ -187,9 +186,6 @@ private:
     uint32_t _cooldownWindow;       // Which 10 min cool down window the pulse logic is in
     bool _cooldownPulseRun;         // This window's cool down pulse is running
     uint8_t _pulseCount;            // Recharge pulses completed, used for the first-pulse flush
-    float _valveBaselineRH;         // From-Engine baseline, set after the flush pulse
-    uint8_t _valvePulseCount;       // End-of-pulse samples judged since recharge started
-    uint8_t _valveHighCount;        // Consecutive From-Engine samples above baseline
     uint8_t _valveNoCurrentCount;   // Consecutive low shunt readings while energized
     uint32_t _valveCommandMs;       // millis() when the valve was energized
     uint32_t _valveCheckMs;         // Last coil-current check
@@ -200,7 +196,6 @@ private:
     bool _purgeSeen;
     bool _purgeQualified;
     bool _thermalLatched;
-    uint32_t _lastPurgeMs;
     time_t _purgeEpoch;
     uint8_t _rechargeGoodCycles;
 
@@ -231,7 +226,6 @@ private:
     void setRechargePhase(RechargePhase phase);
     void setValve(bool on);
     void rechargeFailureCooldown(StopReason reason);
-    bool evaluateValveVerification();
     void checkValveCurrent();
     enum class VentResult { OK, FAULT, NOT_JUDGED };
     VentResult judgeVentPulse(const char* label);
