@@ -1,0 +1,508 @@
+/* Host simulation of the AeroSentry controller logic.
+
+   Runs the real statemachine.cpp, sensors.cpp, relay.cpp, radio_link.cpp and
+   logging.cpp against a simple plant model: a chamber that heats when the
+   heater relay is on and cools toward ambient, a vent pressure sensor that
+   rises only when the pump runs with the valves open, and a sensor node that
+   broadcasts a SensorPacket about once a second. Time is simulated.
+
+   Every step checks the safety invariants:
+     I1 heater on  -> recharge, and a valid chamber packet within CHAMBER_RETRY_MS
+     I2 pump on in recharge -> valves on, and a valid pressure packet within
+        SAMPLE_MAX_AGE_MS (no pump pulse the vent check cannot judge)
+     I3 valves on  -> recharge
+     I4 idle       -> every relay off
+     I5 K1, K7, K8 never driven
+   Build and run: python tools/host_test.py */
+
+#include <Arduino.h>
+#include <Wire.h>
+#include <esp_now.h>
+#include <functional>
+#include <vector>
+#include "config.h"
+#include "sensors.h"
+#include "relay.h"
+#include "statemachine.h"
+#include "radio_link.h"
+#include "link_packet.h"
+#include "sensor_packet.h"
+
+static const uint8_t SENSOR_MAC[6] = {0xF8, 0x5B, 0x1B, 0xBF, 0x3F, 0xEC};
+static const uint8_t BRIDGE_MAC[6] = {0x10, 0xBD, 0xA3, 0x5A, 0x7C, 0x94};
+static const uint8_t STRANGER_MAC[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
+
+/* ---------- plant ---------- */
+struct Plant {
+    bool nodeOn = true;
+    bool toValid = true, fromValid = true, chamberValid = true, pressureValid = true;
+    float toRH = 30.0f, toC = 25.0f, fromRH = 30.0f, fromC = 25.0f;
+    float chamberF = 70.0f;
+    float ambientF = 70.0f;
+    int32_t ambientRaw = 4700000;
+    int32_t flowStep = 100000;
+    bool valveStuck = false;
+    bool heaterBroken = false;
+    bool repeatPackets = false;  // send every packet twice, like the sensor node does
+    uint32_t seq = 0;
+    uint32_t nextPacketMs = 0;
+    uint32_t packetPeriodMs = 1050;
+    uint32_t lastChamberPacketMs = 0;
+    uint32_t lastPressurePacketMs = 0;
+    uint32_t hotSince = 0;        // when the chamber first reached about 240 F
+    std::function<void(Plant&)> model;  // per-test humidity model, called every step
+};
+
+static bool bit(uint8_t port, int b) { return (port >> b) & 1; }
+static bool pumpRelay() { return bit(hostRelayPort0(), RELAY_BIT_PUMP); }
+static bool heaterRelay() { return bit(hostRelayPort0(), RELAY_BIT_HEATER); }
+static bool valvesRelay() {
+    return bit(hostRelayPort0(), RELAY_BIT_VALVE_TO) && bit(hostRelayPort0(), RELAY_BIT_VALVE_FROM);
+}
+
+static void sendPacket(Plant& p) {
+    SensorPacket packet = {};
+    packet.version = AEROSENTRY_PACKET_VERSION;
+    packet.sequence = p.seq++;
+    if (p.toValid) {
+        packet.flags |= SENSOR_FLAG_TO_VALID;
+        packet.toEngineRhCenti = (int16_t)lroundf(p.toRH * 100.0f);
+        packet.toEngineTempCenti = (int16_t)lroundf(p.toC * 100.0f);
+    }
+    if (p.fromValid) {
+        packet.flags |= SENSOR_FLAG_FROM_VALID;
+        packet.fromEngineRhCenti = (int16_t)lroundf(p.fromRH * 100.0f);
+        packet.fromEngineTempCenti = (int16_t)lroundf(p.fromC * 100.0f);
+    }
+    if (p.chamberValid) {
+        packet.flags |= SENSOR_FLAG_CHAMBER_VALID;
+        packet.chamberTempCenti = (int16_t)lroundf((p.chamberF - 32.0f) * 5.0f / 9.0f * 100.0f);
+        p.lastChamberPacketMs = hostNowMs;
+    }
+    if (p.pressureValid) {
+        packet.flags |= SENSOR_FLAG_PRESSURE_VALID;
+        const bool flowing = pumpRelay() && valvesRelay() && !p.valveStuck;
+        packet.ventPressureRaw = p.ambientRaw + (flowing ? p.flowStep : 0) + (int32_t)(p.seq % 7) * 90 - 270;
+        p.lastPressurePacketMs = hostNowMs;
+    }
+    hostEspNowReceive(SENSOR_MAC, (const uint8_t*)&packet, sizeof(packet));
+    if (p.repeatPackets) hostEspNowReceive(SENSOR_MAC, (const uint8_t*)&packet, sizeof(packet));
+}
+
+/* ---------- test bookkeeping ---------- */
+static int failures = 0;
+static int checks = 0;
+static const char* currentTest = "";
+static bool invariantReported = false;
+
+#define EXPECT(cond, ...) do { checks++; if (!(cond)) { failures++; \
+    printf("  FAIL [%s] line %d: ", currentTest, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
+
+static void invariant(bool ok, const char* what) {
+    if (ok || invariantReported) return;
+    failures++;
+    invariantReported = true;  // report the first violation per test only
+    printf("  FAIL [%s] invariant at %lu ms: %s (mode %s, port0 0x%02X)\n", currentTest,
+           (unsigned long)hostNowMs, what, systemModeName(stateMachine.mode()), hostRelayPort0());
+}
+
+static void step(Plant& p, uint32_t dt) {
+    // Physics.
+    const float seconds = dt / 1000.0f;
+    if (heaterRelay() && !p.heaterBroken) p.chamberF += 0.25f * seconds;
+    const float k = pumpRelay() ? 6.0e-4f : 2.78e-4f;
+    p.chamberF -= k * (p.chamberF - p.ambientF) * seconds;
+    if (p.model) p.model(p);
+    // Radio.
+    if (p.nodeOn && hostNowMs >= p.nextPacketMs) {
+        sendPacket(p);
+        p.nextPacketMs = hostNowMs + p.packetPeriodMs;
+    }
+    // One pass of loop().
+    sensorsUpdate();
+    radioLinkUpdate();
+    stateMachine.update();
+    // Invariants.
+    const uint8_t port0 = hostRelayPort0();
+    const SystemMode mode = stateMachine.mode();
+    if (heaterRelay()) {
+        invariant(mode == SystemMode::RECHARGE, "I1 heater on outside recharge");
+        invariant(p.lastChamberPacketMs != 0 && hostNowMs - p.lastChamberPacketMs <= CHAMBER_RETRY_MS + 100,
+                  "I1 heater on without a recent chamber reading");
+    }
+    if (pumpRelay() && mode == SystemMode::RECHARGE) {
+        invariant(valvesRelay(), "I2 recharge pump on with valves closed");
+        invariant(p.lastPressurePacketMs != 0 && hostNowMs - p.lastPressurePacketMs <= SAMPLE_MAX_AGE_MS + 100,
+                  "I2 recharge pump on without a recent vent pressure reading");
+    }
+    if (valvesRelay()) invariant(mode == SystemMode::RECHARGE, "I3 valves energized outside recharge");
+    if (mode == SystemMode::IDLE) invariant(port0 == 0, "I4 relay on while idle");
+    invariant((port0 & ((1 << RELAY_BIT_AUX_12V) | (1 << RELAY_BIT_AUX_AC1) | (1 << RELAY_BIT_AUX_AC2))) == 0,
+              "I5 aux relay driven");
+    hostNowMs += dt;
+}
+
+static void runFor(Plant& p, uint32_t ms, uint32_t dt = 25) {
+    const uint32_t end = hostNowMs + ms;
+    while (hostNowMs < end) step(p, dt);
+}
+
+static bool runUntil(Plant& p, const std::function<bool()>& done, uint32_t maxMs, uint32_t dt = 25) {
+    const uint32_t end = hostNowMs + maxMs;
+    while (hostNowMs < end) {
+        step(p, dt);
+        if (done()) return true;
+    }
+    return false;
+}
+
+static bool logHas(const char* text) { return Serial.log.find(text) != std::string::npos; }
+static size_t logCount(const char* text) {
+    size_t n = 0, pos = 0;
+    while ((pos = Serial.log.find(text, pos)) != std::string::npos) { n++; pos++; }
+    return n;
+}
+static size_t logMark() { return Serial.log.size(); }
+static bool logHasAfter(size_t mark, const char* text) {
+    return Serial.log.find(text, mark) != std::string::npos;
+}
+static bool idle() { return stateMachine.mode() == SystemMode::IDLE; }
+
+/* Print the last lines of the controller log, without the per-packet lines. */
+static void dumpLogTail(size_t lines) {
+    std::vector<std::string> kept;
+    size_t start = 0;
+    while (start < Serial.log.size()) {
+        size_t end = Serial.log.find('\n', start);
+        if (end == std::string::npos) end = Serial.log.size();
+        std::string line = Serial.log.substr(start, end - start);
+        if (line.find("ESP-NOW seq") == std::string::npos) kept.push_back(line);
+        start = end + 1;
+    }
+    const size_t from = kept.size() > lines ? kept.size() - lines : 0;
+    for (size_t i = from; i < kept.size(); ++i) printf("    | %s\n", kept[i].c_str());
+}
+
+static std::string takeMessage() {
+    const char* m = stateMachine.takeStopMessage();
+    return m ? std::string(m) : std::string();
+}
+
+static void reset(const char* name) {
+    currentTest = name;
+    invariantReported = false;
+    hostNowMs = 1000;
+    Serial.log.clear();
+    stateMachine = StateMachine();
+    relay.begin();
+    sensorsBegin();
+    stateMachine.begin();
+    printf("%s\n", name);
+}
+
+/* Humidity model for a recharge that dries: To-Engine falls 1 point a minute
+   after the chamber is hot, and reads dry once the chamber has cooled. */
+static void dryingModel(Plant& p) {
+    if (p.chamberF >= 240.0f && p.hotSince == 0) p.hotSince = hostNowMs;
+    if (p.hotSince == 0) { p.toRH = 40.0f; return; }
+    if (p.chamberF < 130.0f) { p.toRH = 10.0f; return; }
+    const float minutes = (hostNowMs - p.hotSince) / 60000.0f;
+    p.toRH = fmaxf(8.0f, 90.0f - minutes);
+}
+
+static bool startRecharge(Plant& p) {
+    runFor(p, 40000);  // packets flowing, baseline candidates
+    return stateMachine.command(Command::START_RECHARGE);
+}
+
+/* ---------- scenarios ---------- */
+
+static void testNormalRecharge() {
+    reset("Recharge completes and every pulse is vent-checked");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, idle, 6UL * 3600000UL), "recharge did not finish in 6 h");
+    EXPECT(logHas("Stop: S16 RECHARGE_COMPLETE"), "no S16 stop");
+    EXPECT(!logHas("NO FLOW"), "a pulse failed the vent check");
+    EXPECT(logHas("cool down pulse"), "no cool down pulse was judged");
+    EXPECT(logHas("safety pulse"), "safety pulses were not judged");
+    EXPECT(logHas("Cool down done after"), "cool down end not logged");
+    std::string m = takeMessage();
+    EXPECT(m.find("Code S16") != std::string::npos, "message lacks Code S16: %s", m.c_str());
+}
+
+static void testNodeSilentMidPulse() {
+    reset("Sensor node goes silent mid-pulse: pump stops, cool down advances, stops S04");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logHas("Recharge phase 1"); }, 3600000UL), "never reached PULSE_ON");
+    runFor(p, 3000);
+    p.nodeOn = false;
+    const uint32_t silentAt = hostNowMs;
+    runFor(p, SAMPLE_MAX_AGE_MS + 200);
+    EXPECT(!pumpRelay(), "pump still on %lu ms after the node went silent",
+           (unsigned long)(hostNowMs - silentAt));
+    EXPECT(logHas("Recharge pulse cut short"), "cut pulse not reported");
+    bool pumpRan = false;
+    const bool stopped = runUntil(p, [&] { if (pumpRelay()) pumpRan = true; return idle(); },
+                                  RECHARGE_COOLDOWN_MS + 600000UL);
+    EXPECT(stopped, "failure cool down never finished");
+    EXPECT(!pumpRan, "pump ran with no vent pressure");
+    EXPECT(logCount("Recharge failure SENSOR_NODE_SILENT") == 1, "failure logged %u times",
+           (unsigned)logCount("Recharge failure SENSOR_NODE_SILENT"));
+    EXPECT(logHas("Stop: S04 SENSOR_NODE_SILENT"), "no S04 stop");
+    const uint32_t took = hostNowMs - silentAt;
+    EXPECT(took >= RECHARGE_COOLDOWN_MS && took <= RECHARGE_COOLDOWN_MS + SENSOR_LOSS_GRACE_MS + 10000UL,
+           "stop came %lu s after silence", (unsigned long)(took / 1000));
+    std::string m = takeMessage();
+    EXPECT(m.find("cooled first") != std::string::npos, "message lacks the cool down line: %s", m.c_str());
+}
+
+static void testShortDropoutRecovers() {
+    reset("10 s sensor dropout mid-pulse: pulse not judged, recharge continues and completes");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logHas("Recharge phase 1"); }, 3600000UL), "never reached PULSE_ON");
+    runFor(p, 2000);
+    p.nodeOn = false;
+    runFor(p, 10000);
+    p.nodeOn = true;
+    p.nextPacketMs = hostNowMs;
+    EXPECT(runUntil(p, idle, 6UL * 3600000UL), "recharge did not finish");
+    EXPECT(!logHas("Recharge failure"), "a 10 s dropout caused a failure");
+    EXPECT(logHas("Stop: S16 RECHARGE_COMPLETE"), "did not complete");
+    EXPECT(!logHas("NO FLOW"), "the cut pulse was judged as NO FLOW");
+}
+
+static void testNoPressureAtStart() {
+    reset("No vent pressure: recharge refused at start");
+    Plant p; p.pressureValid = false;
+    runFor(p, 40000);
+    const char* block = stateMachine.startBlockReason(Command::START_RECHARGE);
+    EXPECT(block != nullptr && strstr(block, "vent pressure") != nullptr, "start not blocked: %s",
+           block ? block : "(null)");
+    EXPECT(!stateMachine.command(Command::START_RECHARGE), "command accepted");
+    runFor(p, 1000);
+    EXPECT(idle(), "a recharge started");
+}
+
+static void testPressureLostWhileHeating() {
+    reset("Vent pressure lost while heating: fault cool down, no pump, stop S08");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    runFor(p, 120000);
+    p.pressureValid = false;
+    bool pumpRan = false;
+    EXPECT(runUntil(p, [&] { if (pumpRelay()) pumpRan = true; return idle(); }, 3UL * 3600000UL),
+           "never stopped");
+    EXPECT(!pumpRan, "pump ran without vent pressure");
+    EXPECT(logHas("Recharge failure VENT_SENSOR_LOST"), "no vent failure");
+    EXPECT(logHas("Stop: S08 VENT_SENSOR_LOST"), "no S08 stop");
+}
+
+static void testValveStuck() {
+    reset("Valve stuck from the start: first pulse fails, immediate stop S09");
+    Plant p; p.model = dryingModel; p.valveStuck = true;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, idle, 3600000UL), "never stopped");
+    EXPECT(logHas("Stop: S09 VALVE_SUSPECT"), "no S09 stop");
+    EXPECT(logCount("Vent pressure raw") == 1, "%u pulses judged, expected 1",
+           (unsigned)logCount("Vent pressure raw"));
+    EXPECT(hostRelayPort0() == 0, "outputs left on");
+}
+
+static void testValveSticksInCooldown() {
+    reset("Valve sticks during cool down: the cool down pulse catches it, stop S09");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logHas("Recharge phase 3"); }, 4UL * 3600000UL), "never reached cool down");
+    p.valveStuck = true;
+    EXPECT(runUntil(p, idle, 3600000UL), "never stopped");
+    EXPECT(logHas("Stop: S09 VALVE_SUSPECT"), "no S09 stop");
+}
+
+static void testToEngineLostInCooldown() {
+    reset("To-Engine lost in cool down: pressure still confirms pulses, stop S05 after cool down");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logHas("Recharge phase 3"); }, 4UL * 3600000UL), "never reached cool down");
+    runFor(p, 60000);
+    p.toValid = false;
+    const size_t mark = logMark();
+    EXPECT(runUntil(p, idle, 3UL * 3600000UL), "never stopped");
+    EXPECT(logHas("Recharge failure TO_ENGINE_LOST"), "no To-Engine failure");
+    EXPECT(logHasAfter(mark, "cool down pulse"), "cool down pulses stopped although pressure was fine");
+    EXPECT(logHas("Stop: S05 TO_ENGINE_LOST"), "no S05 stop");
+}
+
+static void testHeatupTimeout() {
+    reset("Heater never heats: heat-up timeout, cool down check, stop S14");
+    Plant p; p.model = dryingModel; p.heaterBroken = true;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, idle, RECHARGE_HEATUP_MAX_MS + 600000UL), "never stopped");
+    EXPECT(logHas("Recharge failure HEATUP_TIMEOUT"), "no heat-up failure");
+    EXPECT(logHas("Stop: S14 HEATUP_TIMEOUT"), "no S14 stop");
+    EXPECT(!logHas("Recharge phase 1"), "pulsed without reaching target");
+}
+
+static void testThermalTrip() {
+    reset("Chamber over 255 F: immediate stop S11, everything off");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    runFor(p, 60000);
+    p.chamberF = 260.0f;
+    p.model = nullptr;
+    EXPECT(runUntil(p, idle, 5000), "no thermal stop");
+    EXPECT(logHas("Stop: S11 THERMAL_CHAMBER"), "no S11 stop");
+    EXPECT(hostRelayPort0() == 0, "outputs left on");
+    std::string m = takeMessage();
+    EXPECT(m.find("260 F") != std::string::npos, "message lacks the reading: %s", m.c_str());
+}
+
+static void testDryerDropoutGrace() {
+    reset("Manual dryer: 10 s To-Engine dropout holds, 35 s dropout stops S05");
+    Plant p;
+    runFor(p, 5000);
+    EXPECT(stateMachine.command(Command::START_DRYER_MANUAL), "manual start refused");
+    runFor(p, 20000);
+    p.toValid = false;
+    runFor(p, 10000);
+    p.toValid = true;
+    runFor(p, 5000);
+    EXPECT(!idle(), "10 s dropout stopped the dryer");
+    p.toValid = false;
+    EXPECT(runUntil(p, idle, 60000), "35 s dropout did not stop the dryer");
+    EXPECT(logHas("Stop: S05 TO_ENGINE_LOST"), "no S05 stop");
+}
+
+static void testAutoDryerSamples() {
+    reset("Auto dryer starts with a sample: pump 10 s, settle 10 s, then decide");
+    Plant p; p.fromRH = 12.0f;
+    runFor(p, 5000);
+    EXPECT(stateMachine.command(Command::START_DRYER_AUTO), "auto start refused");
+    runFor(p, 1000);
+    EXPECT(logHas("Auto phase 4") && pumpRelay(), "did not start in SAMPLE_RUN with the pump on");
+    runFor(p, AUTO_SAMPLE_RUN_MS);
+    EXPECT(logHas("Auto phase 5") && !pumpRelay(), "no settle with the pump off");
+    runFor(p, AUTO_SAMPLE_SETTLE_MS + 1500);
+    EXPECT(logHas("Auto phase 3"), "dry sample did not go to WAITING");
+}
+
+static void testAutoRechargeBlocked() {
+    reset("Saturation with Auto Recharge on but no vent pressure: stop S03, no recharge");
+    Plant p; p.pressureValid = false;
+    stateMachine.config.allowAutoRecharge = true;
+    runFor(p, 5000);
+    EXPECT(stateMachine.command(Command::START_DRYER_MANUAL), "manual start refused");
+    runFor(p, 5000);
+    p.toRH = 55.0f;
+    EXPECT(runUntil(p, idle, 60000), "no saturation stop");
+    EXPECT(logHas("Stop: S03 SATURATED"), "no S03 stop");
+    EXPECT(!logHas("Mode -> Recharge"), "a recharge started without vent pressure");
+    std::string m = takeMessage();
+    EXPECT(m.find("Auto Recharge could not start") != std::string::npos, "message: %s", m.c_str());
+}
+
+static void testRemoteStop() {
+    reset("Remote STOP from the bridge: stop S02 with an on-screen message");
+    Plant p;
+    runFor(p, 5000);
+    EXPECT(stateMachine.command(Command::START_PURGE), "purge start refused");
+    runFor(p, 5000);
+    LinkCommand cmd = {};
+    cmd.magic = AEROSENTRY_LINK_MAGIC;
+    cmd.kind = LINK_KIND_COMMAND;
+    cmd.command = REMOTE_STOP;
+    cmd.sequence = 7;
+    hostEspNowReceive(BRIDGE_MAC, (const uint8_t*)&cmd, sizeof(cmd));
+    runFor(p, 200);
+    EXPECT(idle(), "purge still running");
+    EXPECT(logHas("Stop: S02 REMOTE_STOP"), "no S02 stop");
+    std::string m = takeMessage();
+    EXPECT(m.find("remote page") != std::string::npos, "message: %s", m.c_str());
+}
+
+static void testFailureDuringSafetyCheck() {
+    reset("Node silent during the safety check: stops S04 at once (already cooled)");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logHas("Recharge phase 5"); }, 6UL * 3600000UL), "never reached SAFETY_WAIT");
+    p.nodeOn = false;
+    const uint32_t silentAt = hostNowMs;
+    EXPECT(runUntil(p, idle, 120000), "did not stop");
+    EXPECT(hostNowMs - silentAt <= SENSOR_LOSS_GRACE_MS + 6000UL, "took %lu s",
+           (unsigned long)((hostNowMs - silentAt) / 1000));
+    EXPECT(logHas("Stop: S04 SENSOR_NODE_SILENT"), "no S04 stop");
+}
+
+static void testMaxRunTime() {
+    reset("Beads never dry: 6 h limit, cool down, safety check, stop S17");
+    Plant p;
+    p.model = [](Plant& q) { q.toRH = q.chamberF < 130.0f ? 10.0f : 50.0f; };
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, idle, 10UL * 3600000UL, 50), "never stopped");
+    EXPECT(logHas("Recharge 6h max at temperature"), "no max-time latch");
+    EXPECT(logHas("Stop: S17 RECHARGE_MAX_TIME"), "no S17 stop");
+}
+
+static void testFlakyPressure() {
+    reset("Pressure drops every 5th packet for a whole recharge: no false stop");
+    Plant p; p.model = [](Plant& q) {
+        dryingModel(q);
+        q.pressureValid = (q.seq % 5) != 0;
+    };
+    EXPECT(startRecharge(p), "recharge start refused");
+    const bool finished = runUntil(p, idle, 6UL * 3600000UL);
+    EXPECT(finished, "recharge did not finish");
+    if (!finished) dumpLogTail(40);
+    EXPECT(logHas("Stop: S16 RECHARGE_COMPLETE"), "did not complete");
+    EXPECT(!logHas("NO FLOW"), "false NO FLOW");
+    EXPECT(!logHas("Recharge failure"), "false failure");
+}
+
+static void testFlakyToEngine() {
+    reset("To-Engine fails one read in five for a whole recharge: no false stop");
+    Plant p; p.model = [](Plant& q) {
+        dryingModel(q);
+        q.toValid = (q.seq % 5) != 0;
+    };
+    EXPECT(startRecharge(p), "recharge start refused");
+    const bool finished = runUntil(p, idle, 6UL * 3600000UL);
+    EXPECT(finished, "recharge did not finish");
+    if (!finished) dumpLogTail(30);
+    EXPECT(logHas("Stop: S16 RECHARGE_COMPLETE"), "did not complete");
+    EXPECT(!logHas("Recharge failure"), "false failure");
+}
+
+static void testRestartReport() {
+    reset("Restart during a cycle: S18 message names the cycle and the cause");
+    stateMachine.reportRestart(SystemMode::RECHARGE, "The controller froze and the watchdog restarted it.");
+    std::string m = takeMessage();
+    EXPECT(m.find("Recharge ended. Code S18") != std::string::npos, "message: %s", m.c_str());
+    EXPECT(m.find("watchdog") != std::string::npos, "cause missing: %s", m.c_str());
+}
+
+int main(int argc, char** argv) {
+    if (argc > 1 && strcmp(argv[1], "-v") == 0) Serial.echo = true;
+    testNormalRecharge();
+    testNodeSilentMidPulse();
+    testShortDropoutRecovers();
+    testNoPressureAtStart();
+    testPressureLostWhileHeating();
+    testValveStuck();
+    testValveSticksInCooldown();
+    testToEngineLostInCooldown();
+    testHeatupTimeout();
+    testThermalTrip();
+    testDryerDropoutGrace();
+    testAutoDryerSamples();
+    testAutoRechargeBlocked();
+    testRemoteStop();
+    testFailureDuringSafetyCheck();
+    testMaxRunTime();
+    testFlakyPressure();
+    testFlakyToEngine();
+    testRestartReport();
+    printf("\n%d checks, %d failures\n", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
