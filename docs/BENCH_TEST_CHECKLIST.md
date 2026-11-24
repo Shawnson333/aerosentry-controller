@@ -1,7 +1,8 @@
 # Bench test checklist (v1.0.0-beta.1)
 
-Everything below is built and passes the host simulation (`python tools/host_test.py`, 27 scenarios,
-124 checks), but **none of it has run on the hardware yet**. Work top to bottom. Record each result (date,
+Everything below is built and passes the host simulation (`python tools/host_test.py`, 31 scenarios,
+141 checks). Flashed 2026-11-24 (controller and sensor node, both read back and verified); sections 0 and 1
+are done, the rest is open. Work top to bottom. Record each result (date,
 pass/fail, log file) in the Result column or in `docs/PROJECT_NOTES.md`.
 
 House rules: capture logs, do not poll them; pin the upload port; nothing is flashed until the user says so.
@@ -10,9 +11,9 @@ House rules: capture logs, do not poll them; pin the upload port; nothing is fla
 
 | # | Step | Result |
 |---|---|---|
-| 0.1 | Stop any `capture_serial.py` / `watch_pressure.py` holding COM4. | |
-| 0.2 | Exact rollback: read the app image off the board before flashing (command below). The board runs the 30 s-grace build, which was never committed on its own; the closest commit is `9a518b9` (it adds the auto dryer sample fix). | |
-| 0.3 | Flash the **controller** and the **sensor node** (both changed). The radio bridge firmware did not change and does not need a flash. | |
+| 0.1 | Stop any `capture_serial.py` / `watch_pressure.py` holding COM4. | Done. An old `remote_bridge.py` (11/21) is still running with the old code; restart it when the radio bridge is plugged in. |
+| 0.2 | Exact rollback: read the app image off the board before flashing (command below). | Done 2026-11-24: `Documents\AeroSentry firmware backups\2026-11-24-before-v1-beta` (Waveshare 0x0 and app0, sensor node 0x0 and first 1 MB of app0; both app images validate). |
+| 0.3 | Flash the **controller** and the **sensor node** (both changed). The radio bridge firmware did not change and does not need a flash. | Done; both `verify_flash` OK. Controller COM4, sensor node COM10 (USB serial number = MAC). |
 
 ```powershell
 $pio = "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe"
@@ -28,9 +29,10 @@ $py  = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
 
 | # | Check | Pass when | Result |
 |---|---|---|---|
-| 1.1 | Boot banner | `Firmware 1.0.0-beta.1`, `Reset cause ...`, `Loop watchdog on (5 s)`, `Relay driver OK` | |
-| 1.2 | I2C scan line | `I2C devices:` lists 0x21 (relays), 0x5D (touch), 0x68 (RTC) and the CH422G (0x24/0x38, maybe more). **Record the exact list.** Anything else on the bus is news. | |
-| 1.3 | Sensor node | Its log shows `sent 2` on every line; controller logs each `ESP-NOW seq` once | |
+| 1.1 | Boot banner | `Firmware 1.0.0-beta.1`, `Reset cause ...`, `Loop watchdog on (5 s)`, `Relay driver OK` | Pass. Relays are written off before the banner. |
+| 1.2 | I2C scan line | Record the exact list. | `0x20-0x27 0x30-0x3F 0x51 0x57 0x5D 0x68`. The CH422G answers two whole ranges, including the relay address 0x21. 0x57 / 0x51 are probably the RTC module's EEPROM (unverified). |
+| 1.2b | Relay read-back test (boot) | `clean` | **MISMATCH, every boot:** wrote A5 5A read 24 58, wrote FF FF read 26 FD. Reads at 0x21 are ANDed with the CH422G's `26 FD`; port-0 bits 0, 3, 4, 6, 7 always read 0. Writes are clean. Admin now shows commanded states. See section 3. |
+| 1.3 | Sensor node | Its log shows `sent 2` on every line; controller logs each `ESP-NOW seq` once | Pass, after a node fix: pressure was missing after every reset (HX711 readiness latched at boot); fixed and reflashed, flags 0x0F from the first packet. |
 | 1.4 | Admin page (tap title 10 times) | Shows `Firmware 1.0.0-beta.1`, `Loop max` in ms, `Last stops none since power-up` | |
 
 ## 2. Display flashes (pixel clock now 14 MHz)
@@ -47,13 +49,16 @@ pixel stream when the LCD DMA is starved of PSRAM bandwidth. See the comment at 
 ## 3. Relay K1 investigation (Admin > Relay test)
 
 Idle only. K3 is the mains heater and K7/K8 are mains outputs: a 2 s pulse is a bench check.
+**The register read-back on that screen is not reliable** (1.2b: the CH422G answers at the relay address). The
+result is the click and the relay LED.
 
 | # | Check | Record | Result |
 |---|---|---|---|
-| 3.1 | Tap P0.1 (K2 pump) | Relay clicks, LED lights, screen shows output P0 0x02, input P0 0x02 (control case) | |
-| 3.2 | Tap **P0.0 (K1)** | Click? LED? Output P0 = 0x01? **Input P0 bit 0 = 1 or 0?** | |
-| 3.3 | Tap P1.0 to P1.7 one at a time | Does any of them click K1? | |
-| 3.4 | Interpretation | Output 1, input 1, no click: board-side fault or K1 wired to another pin. Output 1, input 0: something on the board holds P0.0 low. A P1 pin clicks K1: K1 is mapped there; update `RELAY_BIT_*`. | |
+| 3.1 | Tap P0.1 (K2 pump) | Click and LED (control case) | |
+| 3.2 | Tap **P0.0 (K1)** | Click? LED? | |
+| 3.3 | If K1 did not click: tap P1.0 to P1.7 one at a time | Does any of them click K1? | |
+| 3.4 | Interpretation | K1 clicks on P0.0: K1 was never dead; the earlier "dead K1" came from reads at 0x21 (bit 0 always reads 0), e.g. a read-modify-write driver clearing it. No click on P0.0: relay board fault or K1 on another pin. A P1 pin clicks K1: update `RELAY_BIT_*`. | |
+| 3.5 | Long term | The XL9535 (0x20-0x27) can never leave the CH422G's address range on this bus. If reads are ever needed, move the relay board to its own I2C bus (a second I2C controller on free pins, e.g. GPIO 15/16; hardware change, user decision). The firmware never reads the relay board in normal operation. | |
 
 ## 4. Watchdog (Admin > Relay test > Watchdog test)
 
@@ -93,6 +98,7 @@ Idle only. K3 is the mains heater and K7/K8 are mains outputs: a 2 s pulse is a 
 | 7.3 | Disconnect the vent tube at the first pulse | `NO FLOW`, immediate **S09**, everything off (repeat of the 2026-11-20 test) | |
 | 7.4 | Power off the sensor node during a pulse at temperature | Pump off within about 3 s (`Recharge pulse cut short`), then `Recharge failure SENSOR_NODE_SILENT` **once**, status line "Fault cool down", heater off, valves open, fan on; ends **S04** after 2 h (no chamber reading) | |
 | 7.5 | Power off the sensor node for 10 s during a pulse | `Sensors back after ...`, no failure, the cut pulse is re-run | |
+| 7.6b | Heater response check (S19) | In a normal recharge: no `Heater response fault` line. (Do not test by disabling the heater without a plan; the simulator covers dead-at-start and dies-while-holding.) | |
 | 7.6 | Each recharge pulse, cool down pulse and safety pulse | `Vent pressure raw ... OK ... recharge pulse` / `cool down pulse` / `safety pulse` lines, steps well above 20,000 | |
 
 ## 8. Full runs (v1 exit criteria)
@@ -108,7 +114,8 @@ Idle only. K3 is the mains heater and K7/K8 are mains outputs: a 2 s pulse is a 
 
 - Thermal trips (255 F chamber, 250 F probes) have never fired on hardware. Tested in the simulator only. A real
   test needs a written plan (for example, a resistor in place of the thermistor) before anyone tries it.
-- Heat-up timeout (1 h) tested in the simulator only. The 1 h value is still a placeholder; user decision.
+- Heat-up timeout (1 h, user kept it 2026-11-24) and the heater response check (S19: 10 F within 4 min of
+  heater-on time, from bench heat-up curves) are tested in the simulator only.
 - Vent baseline is a running average over the whole recharge. In the 2026-11-22 log it drifted about 23,000
   counts in the first hour. Steps are 70,000-130,000, so there is margin, but watch `Vent baseline` against the
   raw idle reading late in 8.1. A drift down would shrink the measured step.

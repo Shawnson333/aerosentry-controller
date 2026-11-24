@@ -769,3 +769,29 @@ Run 2 ran 10.3 h with no stop and no crash (grace-30 build, without the sample f
 **Not verified:** everything above on the hardware; the 14 MHz panel; the bridge MAC filter with the real
 bridge; the watchdog reset timing and relay drop; the XL9535 holding its outputs through a reset; cool down
 and safety pulses showing the step on a cold chamber.
+
+## 2026-11-24 afternoon: flashed and first bench findings
+
+Flashed with the user's go-ahead. Rollback images first: `Documents\AeroSentry firmware backups\2026-11-24-before-v1-beta`
+(both app images validate). Controller COM4, sensor node COM10 (their USB serial numbers are their MACs); the
+radio bridge was not connected. Both flashes read back and verified.
+
+**Sensor node lost vent pressure after every reset (fixed).** `readPressure()` latched the boot-time
+`is_ready()` result; after a reset the HX711 is still waking (SCK floats high during the ESP32 reset), so pressure
+stayed off until a lucky reboot. The fail-closed vent check exposed it at once (a recharge would have been refused).
+Now every read waits up to 150 ms for a conversion. Flags 0x0F from the first packet across two resets.
+
+**K1: the relay board shares its address with the Waveshare's CH422G (proven).** The boot I2C scan shows the
+CH422G answering 0x20-0x27 and 0x30-0x3F: every XL9535 and PCF8574 address, and every PCF8574A address. A read-back
+test on the XL9535 polarity register (no effect on outputs) gives wrote A5 5A read 24 58, wrote FF FF read 26 FD,
+identical on every boot: each read at 0x21 is ANDed with the CH422G's `26 FD`. Port-0 bits 0, 3, 4, 6 and 7 always
+read 0. Writes are clean. So K1 (bit 0) reads as off whatever it really is, and any read-modify-write driver would
+keep clearing it. That fits "K1 does not latch" on three boards from two makers: the common part was the Waveshare.
+The firmware only writes the relay board; Admin now shows the commanded state. Still to do on the bench: drive
+P0.0 from Admin > Relay test and see whether K1 clicks.
+
+**Heater response check (user idea).** S19 HEATER_NO_RISE: 4 min of heater-on time without a 10 F rise (or reaching
+target) stops the recharge through the failure cool down, in heat-up or hold. From the logs: cold start 82 F rose 53 F
+in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17 F in 2 min. The 1 h backstop stays.
+
+**Not verified yet:** everything in `docs/BENCH_TEST_CHECKLIST.md` from section 2 on.

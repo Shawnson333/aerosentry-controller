@@ -9,12 +9,11 @@ code wins, and the stale document is listed in section 4.
 
 ## READ THIS FIRST
 
-1. **Nothing from 2026-11-24 has run on the hardware.** The board still runs the 30 s-grace build from
-   2026-11-23 (no auto dryer sample fix). The v1 beta build (branch `v1-beta`) is built and passes the host
-   simulation only. The order to prove it in is `docs/BENCH_TEST_CHECKLIST.md`.
-2. **Do not flash until the user says so.** Flash the controller and the sensor node together; the radio bridge
-   did not change. Read the current app image off the board first (command in the checklist) for an exact
-   rollback.
+1. **The v1 beta is flashed (2026-11-24) but mostly unproven.** Controller and sensor node run branch `v1-beta`;
+   boot checks passed. Everything else is open in `docs/BENCH_TEST_CHECKLIST.md`. Rollback images of the old
+   firmware are in `Documents\AeroSentry firmware backups\2026-11-24-before-v1-beta`.
+2. **Do not flash again until the user says so.** The Waveshare's CH422G answers at the relay board's address
+   (proven 2026-11-24): never read the relay board and trust the result; the driver only writes.
 3. The COM4 disconnect at 22:46:15 on 2026-11-23 was the user unplugging the board. Auto dryer run 2 ran 10.3 h
    cleanly.
 4. **User working style:** capture logs, do not poll or monitor; say plainly what is unverified; never flash
@@ -454,10 +453,11 @@ All of this is in `docs/BENCH_TEST_CHECKLIST.md`, with pass criteria. Summary:
   250 F: still never run on hardware (simulated only).
 
 ### 5.3 Known issues still open
-1. **K1 relay channel** reported dead on three boards. No software cause found: the driver matches the reference
-   XL9535 driver register for register, and no firmware had driven K1 since the first raw sweep. Next step:
-   checklist section 3. Hypotheses: K1 wired to a P1 pin on these boards, the pin held low on the board, or the
-   12 V aux wiring on K1's contacts rather than the relay itself.
+1. **K1 relay channel** reported dead on three boards. Bench 2026-11-24: the Waveshare's CH422G answers at every
+   XL9535 address and ANDs `26 FD` into every read at 0x21, so bit 0 (K1) always reads 0 while writes are clean.
+   That explains a "dead" K1 under any read-modify-write driver or readback display. Next: drive P0.0 from
+   Admin > Relay test and listen for K1 (checklist section 3). Long term, a separate I2C bus for the relay board
+   if reads are ever needed.
 2. **Display flashes:** cause identified (byte-swapped frames from PSRAM starvation); 14 MHz is a mitigation, not
    proven. Next steps: 12 MHz, then Arduino core 3.x (ESP-IDF 5) with RGB bounce buffers.
 3. **Warning message vs screen saver:** the fix has never been seen working.
