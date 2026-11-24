@@ -1,16 +1,26 @@
-# AeroSentry Controller: Handoff to GitHub Copilot (Agent Mode)
+# AeroSentry Controller: Handoff
 
-Written 2026-11-23, about 23:10 local, by the previous agent (Cline) at the end of a bench-tuning session.
-Repo: `https://github.com/Shawnson333/aerosentry-controller`, branch `main`, HEAD `accffcb`.
+Written 2026-11-23 by the previous agent (Cline). **Updated 2026-11-24 by Claude** after the v1 beta build:
+branch `v1-beta`, firmware `1.0.0-beta.1`. Repo: `https://github.com/Shawnson333/aerosentry-controller`.
 
-**How far to trust this file.** Every pin, constant, path and behavior below was read from the files on disk on 2026-11-23. Anything that could not be checked is marked **Unverified**. Where an older document disagrees with the code, the code wins, and the stale document is listed in section 4.
+**How far to trust this file.** Every pin, constant, path and behavior below was read from the files on disk.
+Anything that could not be checked is marked **Unverified**. Where an older document disagrees with the code, the
+code wins, and the stale document is listed in section 4.
 
 ## READ THIS FIRST
 
-1. **The Waveshare controller may have dropped off USB during the second auto dryer run.** The serial capture `C:\Users\sjohn\AppData\Local\Temp\aerosentry-auto-dryer-run2-grace30.log` ends at 22:46:15 with `[serial disconnected; waiting for reconnect]`, about 10.3 h into the run. At 23:08 Windows listed only COM6 (the Heltec radio). COM4 (the Waveshare) was gone. The log has no `Stop:` line and no second boot banner. The cause is **not known** (cable, power loss, or a crash that never re-enumerated are all possible; none was checked). The pump state at that moment is unknown. Ask the user to look at the hardware before anything else.
-2. **Do not flash the Waveshare until the user says the dryer test is over.** The build in `.pio` includes the auto dryer sampling fix (section 5). It is NOT on the board. The board runs the previous build (30 s sensor-loss grace, no sample fix).
-3. **Almost everything since `accffcb` is uncommitted.** `git status` before these two new documents were added: 16 modified files, 2 untracked (`tools/peek_port.py`, `tools/reset_and_peek.py`). The last tagged known-good state is `bench-2026-11-18` (`35cd9ad`), which predates most of the current safety logic.
-4. **User working style:** capture logs, do not poll or monitor; say plainly what is unverified; never flash without being told; always pin the upload port; do not guess.
+1. **Nothing from 2026-11-24 has run on the hardware.** The board still runs the 30 s-grace build from
+   2026-11-23 (no auto dryer sample fix). The v1 beta build (branch `v1-beta`) is built and passes the host
+   simulation only. The order to prove it in is `docs/BENCH_TEST_CHECKLIST.md`.
+2. **Do not flash until the user says so.** Flash the controller and the sensor node together; the radio bridge
+   did not change. Read the current app image off the board first (command in the checklist) for an exact
+   rollback.
+3. The COM4 disconnect at 22:46:15 on 2026-11-23 was the user unplugging the board. Auto dryer run 2 ran 10.3 h
+   cleanly.
+4. **User working style:** capture logs, do not poll or monitor; say plainly what is unverified; never flash
+   without being told; always pin the upload port; do not guess.
+5. Before changing controller logic, run `python tools/host_test.py` (section 4). It runs the real state machine
+   against simulated sensors, relays and a chamber, and checks the safety invariants at every step.
 
 ---
 
@@ -35,23 +45,23 @@ A hangar-based controller that keeps an aircraft engine dry. A pump circulates a
 | Purge | Pump on, heater off, valves de-energized. A purge counts as "qualified" after 60 s of pump (`PURGE_QUALIFY_MS`). | User Stop, or To-Engine RH above 40% for 30 s with the pump on (`SATURATED`). | To-Engine |
 | Manual dryer | Pump on for `dryerOnMinutes` (1-5, default 3), off for `dryerOffHours` (1-3, default 1), repeating. | User Stop, or saturation. | To-Engine |
 | Auto dryer | See the phase list below. Valves stay de-energized. | User Stop, or saturation. | To-Engine and From-Engine |
-| Recharge | See the sequence below. Both valves energized the whole time. | Normal completion, or any stop reason in the table in section 3. | To-Engine and chamber thermistor |
+| Recharge | See the sequence below. Both valves energized the whole time. | Normal completion, or any stop code in `docs/ERROR_CODES.md`. | To-Engine, chamber thermistor and vent pressure. Local only (no remote Recharge). |
 
-Every mode also ends on `THERMAL` and, after the 30 s grace, `SENSOR_LOST`. Saturation stop applies to Purge, Manual and Auto only. If "Allow Auto Recharge" is on, saturation during Manual or Auto starts a recharge and resumes that dryer cycle after the safety check passes. **That auto-recharge path has not been exercised in any log I have.**
+Every mode also ends on a thermal trip (S11-S13) and, after the 30 s grace, a sensor-loss code (S04-S08). Saturation stop applies to Purge, Manual and Auto only. If "Allow Auto Recharge" is on AND the dryer was started at the screen (after the unattended-recharge warning), saturation starts a recharge (only if its sensors, including vent pressure, are present) and resumes that dryer cycle after the safety check passes. A remote dryer start never arms it. **That auto-recharge path has not been exercised on hardware** (simulated only).
 
 **Auto dryer phases** (the `AutoPhase` enum value in brackets is what the serial log prints as `Auto phase N`):
-- `SAMPLE_RUN` [4]: pump 10 s (`AUTO_SAMPLE_RUN_MS`). Then `SAMPLE_SETTLE` [5]: pump off 10 s in source (`AUTO_SAMPLE_SETTLE_MS`; 30 s in the flashed build). Then read From-Engine. At or below target (default 20%, range 15-30) go to `WAITING`; above target go to `DRYING`.
+- `SAMPLE_RUN` [4]: pump 10 s (`AUTO_SAMPLE_RUN_MS`); `Auto phase 4` is printed at cycle start since 2026-11-24. Then `SAMPLE_SETTLE` [5]: pump off 10 s in source (`AUTO_SAMPLE_SETTLE_MS`; 30 s in the flashed build). Then read From-Engine. At or below target (default 20%, range 15-30) go to `WAITING`; above target go to `DRYING`.
 - `DRYING` [0]: pump on until From-Engine is at or below target (readings ignored for the first 10 s) or 10 min (`AUTO_MAX_RUN_MS`), then `COOLDOWN` [1] for 10 min, then `QUICK_SAMPLE` [2] (pump 10 s, settle, read). Up to 3 quick cycles (`AUTO_MAX_QUICK_CYCLES`), then `WAITING`.
 - `WAITING` [3]: pump off 1 h (`AUTO_SAMPLE_INTERVAL_MS`), then `SAMPLE_RUN`.
 - **Source vs board:** in the source tree the cycle STARTS in `SAMPLE_RUN`. The flashed build starts in `DRYING` and reads From-Engine within about 1 s of pump start. That read was old chamber air (13-15.7%), which is the bug the sample fix addresses.
 
 **Recharge sequence** (`RechargePhase`, printed as `Recharge phase N`):
-1. `HEATING` [0]: both valves energized at mode entry, heater on. Heater ramps 30 s on / 15 s off until the chamber first reaches 245 F. Pump off. Backstop: if 245 F is not reached within 1 h, stop with `HEATUP_TIMEOUT`.
-2. `PULSE_ON` [1]: pump on 10 s. Peak vent pressure is tracked every loop. At the end it needs a fresh From-Engine sample (else pump off and wait up to 30 s, then failure cool down), then the vent pressure check (a miss stops the cycle), then it counts To-Engine samples at or below 15% (three in a row go to cool down).
+1. `HEATING` [0]: both valves energized at mode entry, heater on. Heater ramps 30 s on / 15 s off until the chamber first reaches 245 F. Pump off. The vent baseline is learned here (30 s of pump-off samples); the first pulse waits for it. Backstop: if 245 F is not reached within 1 h, failure cool down then S14.
+2. `PULSE_ON` [1]: pump on 10 s. Peak vent pressure is tracked on every new pressure packet. At the end the vent check judges the pulse (a miss stops the cycle, S09; a pulse with no pressure sample is not judged and does not count), then it counts To-Engine samples at or below 15% (three in a row go to cool down). A sensor dropout mid-pulse stops the pump at once and the pulse is re-run after the wait.
 3. `PULSE_WAIT` [2]: pump off 60 s, then `PULSE_ON`. Heater holds 245 F: off at 245, on at 240.
 4. Max run: 6 h counted from the moment the chamber first reaches target. Latched once, then `COOLDOWN`.
-5. `COOLDOWN` [3]: heater off, case fan on, valves still open, pump 10 s every 10 min, ends at chamber 120 F or below, or after 2 h.
-6. `SAFETY_PULSE` [4] pump 10 s, `SAFETY_WAIT` [5] 60 s, then To-Engine must read 15% or below. Twice in a row completes the cycle (`RECHARGE_COMPLETE`, or `RECHARGE_MAX_TIME` if the 6 h limit started the cool down). Any sample above 15% stops with `SAFETY_FAILED`.
+5. `COOLDOWN` [3]: heater off, case fan on, valves still open, pump 10 s every 10 min only while the vent check can confirm it (each pulse judged), ends at chamber 120 F or below, or after 2 h. The failure cool down is the same phase, entered once, and runs on time alone if the sensors are gone.
+6. `SAFETY_PULSE` [4] pump 10 s (judged by the vent check), `SAFETY_WAIT` [5] 60 s, then To-Engine must read 15% or below. Twice in a row completes the cycle (`RECHARGE_COMPLETE`, or `RECHARGE_MAX_TIME` if the 6 h limit started the cool down). Any sample above 15% stops with `SAFETY_FAILED`.
 
 ### Non-negotiable operational logic and safety interlocks
 | Interlock | Where | Value |
@@ -59,12 +69,14 @@ Every mode also ends on `THERMAL` and, after the 30 s grace, `SENSOR_LOST`. Satu
 | Software thermal trip, chamber | `THERMAL_CHAMBER_F` = `RECHARGE_SOFT_OVERTEMP_F` in `include/config.h` | 255 F, stops everything, latched until it falls, blocks new starts |
 | Software thermal trip, humidity probes | `THERMAL_SENSOR_F` | 250 F on either SHT40 |
 | Mechanical thermal fuse | Hardware only. Nothing in firmware reads it. `RECHARGE_HARD_OVERTEMP_F` is documentation. | 266 F |
-| Vent pressure check | `evaluateVentPressure()` | Each pump pulse must reach ambient average + 20,000 counts at any point, or stop with `VALVE_SUSPECT` immediately |
-| Sensor loss | `StateMachine::update()` | 30 s grace (`SENSOR_LOSS_GRACE_MS`), then stop. In recharge after the chamber reached target, a loss goes to the venting failure cool down instead. |
-| Heater without a fresh chamber reading | `update()` and `regulateHeater()` | Never newly enabled without a fresh (3 s) chamber sample. `regulateHeater()` may hold the PREVIOUS command for up to 6 s (`CHAMBER_RETRY_MS`) after the last valid sample. During the 30 s dropout hold the heater is forced off as soon as the sample is stale. |
-| Heat-up backstop | `RECHARGE_HEATUP_MAX_MS` | 1 h (previous agent's pick, not the user's) |
+| Vent pressure check | `judgeVentPulse()`, `ventSensorOk()` | Every pump pulse (recharge, cool down, safety) must reach ambient average + 20,000 counts, or stop with `VALVE_SUSPECT` (S09) at once. **Fails closed** (2026-11-24): no recharge start and no pump pulse without a fresh pressure reading; missing for 30 s in a recharge goes to the failure cool down with the pump off (S08). |
+| Sensor loss | `update()`, `updateRecharge()` | 30 s grace (`SENSOR_LOSS_GRACE_MS`). Dryers and purge hold, then stop. Recharge: pump off at once, then the failure cool down, entered once, advancing on time even with no sensors. |
+| Heater without a fresh chamber reading | `updateRecharge()` and `regulateHeater()` | Never newly enabled without a fresh (3 s) chamber sample. `regulateHeater()` may hold the PREVIOUS command for up to 6 s (`CHAMBER_RETRY_MS`) after the last valid sample. Off in every cool down and safety phase. |
+| Heat-up backstop | `RECHARGE_HEATUP_MAX_MS` | 1 h (previous agent's pick, not the user's). Now cools down before stopping (S14). |
 | Recharge max run | `RECHARGE_MAX_MS` | 6 h from first reaching target |
-| Cooldown before the safety check | `RECHARGE_COOLDOWN_MS`, `RECHARGE_FAILED_FAN_TEMP_F` | Ends at 120 F or after 2 h |
+| Cooldown before the safety check | `RECHARGE_COOLDOWN_MS`, `RECHARGE_FAILED_FAN_TEMP_F` | Ends at 120 F or after 2 h. Pump pulses only when the vent check can confirm them. |
+| Loop watchdog | `LOOP_WATCHDOG_ENABLED`, `enableLoopWDT()` in `setup()` | 5 s. A hang resets the chip; `setup()` turns every relay off before anything else; boot shows S18. |
+| Remote commands | `src/radio_link.cpp` | No remote Recharge. Starts only from the bridge MAC. Remote dryer starts never arm Auto Recharge. Stop from anyone. |
 | Valves de-energize on any stop | `stopWith()` calls `relay.allOff()` | The valves are normally closed per the notes, so a stop or power loss returns flow to the engine loop (not verified by me) |
 | STOP is always accepted | `StateMachine::command()` | Queued, applied on the next `update()` |
 | Start gating | `startBlockReason()` | Required sensors present, no cycle running, no thermal limit exceeded |
@@ -154,7 +166,7 @@ The bus clock is set to 100 kHz in `initializeExpanderAndTouchReset()`.
 - `RelayDriver::begin()` writes polarity 0, then output 0, then direction 0 (outputs), so every relay is off before the pins become outputs.
 - `StateMachine::begin()` and every `stopWith()` call `relay.allOff()`.
 - **Unverified:** what the relay board does while the MCU is held in reset, or during the XL9535 power-up window before `begin()`.
-- **Unverified:** relay behavior if the firmware hangs. There is no watchdog in the code (section 5, P0).
+- **Unverified:** relay behavior if the firmware hangs. The loop watchdog (5 s) should reset the chip and `setup()` turns every relay off first; Admin > Relay test > Watchdog test checks it (checklist section 4).
 
 ### Sensor node (Heltec V4.3) pins, `nodes/heltec-sensor/include/config.h`
 | GPIO | Function |
@@ -202,9 +214,11 @@ aerosentry-controller/
     link_packet.h             LinkCommand / LinkAck / LinkStatus and REMOTE_* codes
     link_beacon.h             LinkBeacon hear-test packet (magic 0xB4)
   docs/
-    PROJECT_NOTES.md          Running engineering log, about 680 lines, newest sections at the end
-  firmware/
-    xiao-sensor-known-good.bin  Binary of the retired XIAO sensor firmware
+    PROJECT_NOTES.md          Running engineering log, newest sections at the end
+    ERROR_CODES.md            Stop codes S01-S18
+    BENCH_TEST_CHECKLIST.md   What still has to be proven on the hardware, in order
+  archive/
+    xiao-sensor/              RETIRED XIAO ESP32-C3 node and its known-good binary
   include/                    Controller headers
     config.h                  ALL controller pins, I2C addresses, timings, thresholds, UI colors
     statemachine.h            StateMachine class, enums (SystemMode, Command, StopReason)
@@ -219,7 +233,8 @@ aerosentry-controller/
     logo_img.h                extern for the logo image
     ui.h                      UI API for all screens
     README                    PlatformIO boilerplate
-  lib/README, test/README     PlatformIO boilerplate. No unit tests exist.
+  lib/README, test/README     PlatformIO boilerplate
+  test/host/                  Stubs, fakes and scenarios for tools/host_test.py (host simulation)
   src/
     main.cpp                  setup() and loop()
     statemachine.cpp          About 1,240 lines. All cycle logic, thermal checks, stop messages, status text
@@ -229,7 +244,8 @@ aerosentry-controller/
     system_clock.cpp          DS3231M read/write, software fallback in NVS (Preferences)
     display.cpp               CH422G reset, GT911 touch, ESP-IDF RGB panel, flush
     lvgl_v8_port.cpp          LVGL init, two 800x20 DMA draw buffers, touch input
-    logging.cpp               Disabled SD logger (all no-ops)
+    logging.cpp               SD logger stub; keeps the last stop events in RAM for Admin
+    run_state.cpp             Cycle-running flag in NVS and the reset cause, for S18 at boot
     ui.cpp                    uiBegin, uiLoop, uiHandleStartResult
     ui_main.cpp               Main screen, purge/dryer/recharge prompts, 10-tap Admin entry
     ui_dryer_setup.cpp        Manual dryer on/off time
@@ -237,20 +253,21 @@ aerosentry-controller/
     ui_clock.cpp              Clock editor
     ui_warning.cpp            Warning and choice dialogs, uiWarningActive()
     ui_logo.cpp               Boot splash and 3-minute idle logo
-    ui_admin.cpp              Diagnostics: sensors, relays, vent pressure panel
+    ui_admin.cpp              Diagnostics: sensors, relays, vent pressure, last stops, firmware, loop max
+    ui_relay_test.cpp         Admin > Relay test: pulse any XL9535 pin, read it back; I2C scan; watchdog test
     logo_img.c                4.7 MB generated image data. Do not hand-edit.
   nodes/
     heltec-sensor/            ACTIVE sensor node (env heltec-v4-sensor)
     heltec-radio/             ACTIVE radio bridge (env heltec-v4-beacon)
     heltec-sensor-test/       Bench test, serial only
-    xiao-sensor/              RETIRED XIAO ESP32-C3 sensor node
   tools/
     capture_serial.py         Timed serial capture that survives native-USB resets (--port, --seconds, --reset)
-    peek_port.py              Read a port without pulsing DTR/RTS (untracked)
-    reset_and_peek.py         Pulse DTR/RTS then print the boot log (untracked)
-    watch_pressure.py         Endless COM4 log writer, hard-coded to COM4 and a Temp path
+    peek_port.py              Read a port without pulsing DTR/RTS
+    reset_and_peek.py         Pulse DTR/RTS then print the boot log
+    watch_pressure.py         Endless log writer without reset (--port, --log), reconnects
     remote_bridge.py          HTTP server on port 8080 plus USB serial to the radio bridge
-    make_logo.py              Regenerates src/logo_img.c. Hard-coded input path under Downloads.
+    make_logo.py              Regenerates src/logo_img.c (--input, --output)
+    host_test.py              Builds and runs the host simulation (test/host)
   web/
     index.html                Phone control page (uses /api/status and /api/command)
     history.html              History page mockup (fetches /hangar.csv; the notes say its charts are sample drawings)
@@ -278,8 +295,8 @@ Generated and not tracked: `.pio/`, `nodes/*/.pio/`. Serial logs and helper scri
 ### `StateMachine::update()` flow
 1. `checkThermal()`, then `learnVentBaseline()`.
 2. `handleCommand()` consumes one pending command (STOP, or a start that passes `startBlockReason()`), then updates fan and outputs and returns.
-3. If not idle and the required sensors are not OK: start or continue the dropout timer, print `Sensor dropout - holding`, and hold for 30 s (no decisions; recharge regulates the heater only with a fresh chamber reading). After 30 s: stop with `SENSOR_LOST`, or the failure cool down in recharge once the chamber had reached target.
-4. Otherwise print `Sensors back after N ms` if recovering, end the 2 s start grace, run the per-mode update, then `checkSaturation()` and `maybeLog()`.
+3. If not idle: note a dropout (`Sensor dropout - holding`) or a recovery (`Sensors back after N ms`). Recharge always runs `updateRecharge(sensorsOk)`, which handles a dropout itself (pump off, heater only with a fresh chamber reading, failure cool down once after 30 s). Purge and the dryers hold with no decisions, then stop with the specific sensor-loss code after 30 s.
+4. With the sensors OK: end the 2 s start grace, run the per-mode update, then `checkSaturation()` and `maybeLog()`.
 5. `checkThermal()` again, `updateFan()`, `applyOutputs()`.
 
 Outputs are never written inside the mode code. The mode code sets `_pumpOn`, `_heaterOn`, `_fanOn` and `_valveEnergized`. `applyOutputs()` compares them with the `_applied*` copies and writes the relay only on change, printing `Pump ON`, `Heater OFF` and so on. `stopWith()` and `checkThermal()` write the relay directly and call `allOff()`.
@@ -305,22 +322,12 @@ Changing a packet struct means reflashing the Waveshare and the sensor node toge
 Sensor validity rules (`src/sensors.cpp`): a packet is "fresh" for 15 s (`SENSOR_STALE_MS`). Each humidity or chamber reading must also have arrived within 3 s (`SAMPLE_MAX_AGE_MS`) to count as ready. `chamberRetryPending()` is a 6 s window after the last valid chamber sample.
 
 ### Stop reasons and what the user sees
-`StopReason` in `include/statemachine.h`; text in `StateMachine::stopWith()`.
+Every stop has a permanent code S01-S18. The full table (cause, what the controller does, what to check) is
+`docs/ERROR_CODES.md`. The screen shows the cause, the reading behind it, what to do, and
+`<mode> ended. Code Sxx`. Serial prints one line per stop, `Stop: S09 VALVE_SUSPECT mode=Recharge | ...`, and
+`Logger::logStop()` receives the same code for the future SD log. Admin shows the last three stops.
 
-| Reason | Trigger | On-screen text (first line) |
-|---|---|---|
-| `USER` | Stop button or remote STOP | none |
-| `SATURATED` | To-Engine above 40% for 30 s, pump on, not recharge | "Desiccant saturated." |
-| `SENSOR_LOST` | Required sensors missing for 30 s | "Sensor node not responding." or names the sensor |
-| `RECHARGE_COMPLETE` | Three dry samples then two safety samples pass | "Recharge complete." |
-| `RECHARGE_MAX_TIME` | 6 h at temperature, then cool down and safety check pass | "Recharge stopped. 6 hours at temperature..." |
-| `HEATUP_TIMEOUT` | 245 F not reached in 1 h | "Chamber did not reach target temperature." |
-| `THERMAL` | Chamber over 255 F or a probe over 250 F | "Thermal limit reached." |
-| `VALVE_SUSPECT` | A pulse missed the +20,000 vent step | "Valve position suspect." |
-| `VALVE_NO_CURRENT` | Coil current check (disabled) | "Valve coil fault." |
-| `SAFETY_FAILED` | Safety sample above 15% | "Safety check failed." |
-
-Messages stay on screen until OK. `uiShowWarning()` sets `warningActive`, and `uiLogoTick()` will not start the idle logo while it is set. **This has been compiled and flashed but never seen working on the display.**
+Messages stay on screen until OK. `uiShowWarning()` sets `warningActive`, and `uiLogoTick()` will not start the idle logo while it is set. **Never seen working on the display yet.**
 
 ### External libraries and dependencies
 | Dependency | Version | Where declared | Used by |
@@ -360,10 +367,14 @@ The platform is unpinned, so a fresh machine may resolve a different `espressif3
 | Switch | Value | Meaning |
 |---|---|---|
 | `RELAY_DRIVER_ENABLED` | 1 | 0 makes `relay.begin()` return false and all relay writes are skipped |
-| `VENT_PRESSURE_CHECK_ENABLED` | 1 | The divert safety check |
+| `VENT_PRESSURE_CHECK_ENABLED` | 1 | The divert safety check (fails closed) |
 | `VALVE_CURRENT_CHECK_ENABLED` | 0 | Needs the shunt wired on the sensor node |
-| `VALVE_TREND_CHECK_ENABLED` | 0 | Retired humidity ladder. **Defined twice** (lines 117 and 132). |
-| `RECHARGE_TEST_MODE` | 1 | Both branches now hold the same values (245 F, 5 F), so it does nothing |
+| `LOOP_WATCHDOG_ENABLED` | 1 | Task watchdog on `loop()` (5 s) and the Admin watchdog test |
+| `REMOTE_REQUIRE_BRIDGE_MAC` | 1 | Starts only from `REMOTE_BRIDGE_MAC` |
+| `REMOTE_RECHARGE_ALLOWED` | 0 | Remote Recharge is refused |
+| `DISPLAY_PCLK_HZ` | 14000000 | RGB pixel clock; was 16 MHz (display flashes) |
+
+`FIRMWARE_VERSION` ("1.0.0-beta.1") is printed at boot and shown on Admin.
 
 - Changing a tunable: edit `include/config.h`, rebuild, flash, then add a dated note in `docs/PROJECT_NOTES.md` saying what changed and what was not verified. The previous agent did this every time.
 
@@ -382,18 +393,16 @@ The platform is unpinned, so a fresh machine may resolve a different `espressif3
 ### Documents and comments that are stale. The code wins.
 | Where | What is wrong |
 |---|---|
-| `docs/PROJECT_NOTES.md` "Cycle rules" | Says recharge target 240 F, stop at 3 h, thermal 260 F, 6 s chamber retry, auto sample pause 30 s. Code: 245 F, 6 h from target, 255 F, 30 s grace, 10 s settle. |
-| `docs/PROJECT_NOTES.md` "Audit restoration 2026-11-20" | Says there is no 120 F cooldown exit and the loose 10 s / 10 min pulses were removed. Both are back in the code. |
-| `docs/PROJECT_NOTES.md` "V1 boundaries" and "Next: Heltec V4" | Plan around the XIAO and MeshCore. The XIAO is retired. |
-| `docs/PROJECT_NOTES.md` valve sections | Say K7/K8 are "masked off". The code enables all eight channels. |
-| `README.md` lines 28 and 32 | Refer to the XIAO packet and an unwritten Heltec firmware. |
-| `src/sensors.cpp` line 3, `include/sensors.h` line 8 | Header comments say the packet comes from the XIAO. |
-| `src/statemachine.cpp` line 557 | Comment says the long pulse is 15 s. It is 10 s. |
-| `src/statemachine.cpp` status text | `"Chamber retry, 6s max"` is hard-coded and no longer matches the 30 s grace. |
-| `docs/PROJECT_NOTES.md` "First system operating test" | Still ends "Result: pending". The 2026-11-23 evening section has the current state. |
+| `docs/PROJECT_NOTES.md` "Audit restoration 2026-11-20" | Says there is no 120 F cooldown exit and the loose 10 s / 10 min pulses were removed. Both are in the code. |
+| `docs/PROJECT_NOTES.md` "V1 boundaries" and "Next: Heltec V4" | Plan around the XIAO and MeshCore. The XIAO is retired (`archive/`). |
+| `docs/PROJECT_NOTES.md` valve sections | Say K7/K8 are "masked off" and describe the vent check before it failed closed. The code enables all eight channels; see `docs/ERROR_CODES.md` for the current vent rules. |
+| `docs/PROJECT_NOTES.md` "Cycle rules" | Marked superseded in place (2026-11-24). |
+
+Fixed on 2026-11-24: the README, the XIAO comments in `sensors.cpp`/`sensors.h`, the 15 s pulse comment, the
+"Chamber retry, 6s max" status text, and the "Result: pending" line.
 
 ### Build, flash and capture commands (Windows, PowerShell, from the repo root)
-These come from `README.md` and the session record. Only `pio run` for the controller was actually run during this handoff, and it succeeded.
+All three environments and the host simulation were built on 2026-11-24 with no warnings.
 ```powershell
 $pio = "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe"
 $py  = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
@@ -402,7 +411,9 @@ $py  = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
 & $pio run -d nodes/heltec-radio                             # build the radio bridge (not run in this step)
 & $pio run --target upload --upload-port COM4                # flash the Waveshare (ONLY when the user says so)
 & $py tools/capture_serial.py --port COM4 --seconds 20 --reset
+& $py tools/host_test.py                                     # host simulation, no board needed
 ```
+- The host simulation needs PlatformIO's MinGW compiler once: `& $pio pkg install -g --tool "platformio/toolchain-gccmingw32"`. It compiles the real `statemachine.cpp`, `sensors.cpp`, `relay.cpp`, `radio_link.cpp` and `logging.cpp` against `test/host/stubs`, simulates the chamber, sensor node, vent pressure and XL9535 registers, runs 27 scenarios, and checks at every step: heater only in recharge with a fresh chamber reading; recharge pump only with the valves open and fresh pressure; valves only in recharge; all relays off when idle; K1/K7/K8 never driven. Add a scenario for any logic change.
 - The Waveshare is the board on COM4 (MAC `94:a9:90:df:bb:54`). The radio bridge is COM6. Always pin `--upload-port`. Without it PlatformIO can pick the wrong board.
 - A running `capture_serial.py` holds the port. Stop it before flashing. At 23:08 two such processes (PIDs 9992 and 24636) were still waiting to reconnect to COM4.
 - The previous agent read the image back with `esptool.py verify_flash` after each flash. The exact arguments are not recorded in the repo. The app image sits at 0x10000 per the partition table, and `verify_flash` exists in the installed esptool. I did not run it.
@@ -412,90 +423,64 @@ $py  = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
 
 ## 5. Current status: working vs. incomplete
 
-### 5.1 Verified and working (do not break these)
-"Evidence" says what I actually saw. A feature with no hardware evidence is in 5.3, not here.
-
+### 5.1 Verified on hardware before 2026-11-24 (do not break these)
 | Feature | Evidence | Caveat |
 |---|---|---|
-| Controller builds | `pio run` on 2026-11-23: SUCCESS, RAM 34.1% (111,580 B), flash 55.5% (1,855,553 B used; `firmware.bin` is 1,855,920 B) | Incremental build, so warnings from cached objects would not re-appear. The build printed no warning lines. A clean build was not done. |
-| XL9535 relay writes | 1,180 output-register writes in the run7 recharge log, 48 in dryer run 2, all with I2C result 0 | Says nothing about the relay board's behavior in reset (section 2) |
-| Heater regulation at 245 F | Run7 (8 h): chamber 237-250 F, mean 243.6 F, 37% heater duty | The heat-up ramp itself was seen in earlier runs (about 12.6 min to target in one log) |
-| Recharge pulses and vent check | Run7 and the stopped run: `Vent pressure raw ... OK`, steps about 79,000-133,000 against the 20,000 gate, 55 of 55 passed in one run | Needs the real To-Engine plumbing. With a disconnected line it stops on pulse 1 (bench, 2026-11-20). |
-| Recharge max-run latch at 6 h | Run7 reached the latch and entered cool down | The cool down it entered was the buggy one (Celsius compared with 120) |
-| No false saturation stop in recharge | Run7 ran 8 h with 10 s pulses and no stop | The earlier stop came from 30 s pulses; those are no longer used |
-| Auto dryer hourly cycle | Dryer run 2: 10 consecutive `Auto phase 4` samples about 1.01 h apart, no `Stop:` line, in 10.3 h | The board is the build WITHOUT the sample fix |
-| Sensor dropout grace | Dryer run 2: 3 `Sensor dropout - holding` events, recovered after 105, 171 and 167 ms | The 30 s limit has never been reached on hardware |
-| Radio sensor link | Flags 0x0F on every packet in the logs I read; loss about 0.4% in the dryer log | Cause of the loss is unknown |
-| Touch, display, clock, UI navigation | Observed working on the 2026-11-18 bench test and in later sessions | Flicker and message issues below |
-| Remote page and bridge | Worked on 2026-11-11 (Stop acknowledged, Purge refused with relays absent) | Relays are connected now, so the refusal path changed. Remote Recharge from the page was never recorded. The `/api/status` mode is stale (5.2). |
+| XL9535 relay writes | 1,180 output-register writes in the run7 recharge log, 48 in dryer run 2, all with I2C result 0 | |
+| Heater regulation at 245 F | Run7 (8 h): chamber 237-250 F, mean 243.6 F, 37% heater duty | |
+| Recharge pulses and vent check | Run7 and the stopped run: steps about 79,000-133,000 against the 20,000 gate, 55 of 55 passed in one run | A disconnected line stops on pulse 1 (bench, 2026-11-20) |
+| Recharge max-run latch at 6 h | Run7 reached the latch | The cool down after it was the buggy one (Celsius vs 120) |
+| No false saturation stop in recharge | Run7, 8 h with 10 s pulses | |
+| Auto dryer hourly cycle | Dryer run 2: 10 hourly samples in 10.3 h, no stop | Build without the sample fix |
+| Sensor dropout grace | Dryer run 2: 3 dropouts, recovered in 105-171 ms | The 30 s limit has never been reached on hardware |
+| Touch, display, clock, UI navigation | 2026-11-18 bench and later | Flashes (see 5.2) |
 
-### 5.2 Known bugs and quirks (unresolved)
-1. **Possible USB drop on the Waveshare** (top of this file). Cause unknown.
-2. **Sensor loss in recharge never advances the cool down.** In `update()`, once the 30 s grace is spent and the chamber had reached target, `rechargeFailureCooldown()` runs again on every pass while the sensors stay missing. It calls `setRechargePhase(COOLDOWN)`, which restarts the phase timer, so the cool down cannot finish. The heater is off. The pump keeps whatever state it had. Valves stay open. This was noticed, not fixed. It resolves only when the sensors return.
-3. **Vent pressure check fails open.** `evaluateVentPressure()` returns true (no check) when `sensors.pressureValid` is false or the baseline was never learned. A dead or unplugged HX711 therefore removes the divert verification without any message. Whether that is acceptable is the user's decision (P0 below). I did not change it.
-4. **The radio command path is unauthenticated.** ESP-NOW is unencrypted. `radioLinkAccept()` accepts any frame of the right length whose first byte is 0xA7. It can start the pump or a recharge from any device on channel 1. A remote Recharge also skips the on-screen "Disconnect both engine lines. Heaters will be HOT." prompt. The HTTP page has no login; it relies on Tailscale and the localhost/Tailscale-only bind. A refused remote start still overwrites `config.allowAutoRecharge`.
-5. **No watchdog code.** There is no `esp_task_wdt` or similar anywhere in `src/`. What the Arduino core does by default on a hang was not checked. After a reboot the controller is idle with every output off. It does not resume a cycle.
-6. **Warning message disappearing after the screen saver** was seen again in run7. The fix (`uiWarningActive()`, `uiLogoHide()`) is compiled and flashed but has never been seen working on the display.
-7. **Magenta/yellow flicker** on about 1 in 10 page changes. Unresolved. The background is 0x0A1628 in every build.
-8. **Radio frame loss** of about 0.4% in the dryer log against about 0.01% in the run7 log. Cause unknown. Two lost frames in a row is a 3.17 s gap.
-9. **Bridge `/api/status` mode is stale.** It repeatedly reported "Recharge" when the controller was not in recharge. Never use it as controller state. Cause not investigated.
-10. **Serial log cosmetic bug.** The `Vent pressure raw ...` line ends in a literal backslash-n (`\\n` in the format string, `statemachine.cpp` line 908), so the next log line is glued to it. Saved analysis scripts may depend on that, so check before fixing.
-11. **Stale or wrong text** listed in section 4: "Chamber retry, 6s max" status text, the 15 s comment, XIAO mentions.
-12. **The 1 h heat-up backstop is not the user's number.** The user has not decided whether to keep it.
-13. **Auto-recharge from a saturated dryer** (checkbox on the Auto Cycle screen and the resume path) has never been run.
-14. **Valve coil current check** is disabled in firmware because the shunt is not wired. Packets still carry the shunt millivolts (about 250-280 mV was seen with relays off, which is not a real current).
+### 5.2 Built 2026-11-24, not yet on hardware (branch `v1-beta`)
+All of this is in `docs/BENCH_TEST_CHECKLIST.md`, with pass criteria. Summary:
+- Stop codes S01-S18 with cause, reading, action and code; one serial line per stop; Admin shows the last 3.
+- Loop watchdog, relays off first in `setup()`, S18 at boot after a mid-cycle restart or any watchdog / crash /
+  brownout reset; Admin > Relay test > Watchdog test.
+- Recharge: vent check fails closed (S08, S09); cool down and safety pulses judged; sensor loss stops the pump at
+  once, then a failure cool down entered once that advances on time; heat-up timeout cools down first.
+- Readiness: a valid sample within 3 s (To, From, pressure); the chamber keeps the stricter rule.
+- Remote: no remote Recharge, bridge-only starts, Stop from anyone, Auto Recharge armed only by a local start.
+- UI: new Recharge prompt with Back, unattended-recharge warning, synced Auto Recharge checkboxes, valves on the
+  main screen.
+- Display pixel clock 14 MHz (flash mitigation). Relay test screen and boot I2C scan (K1 investigation).
+- Sensor node sends each packet twice; the controller keeps one copy.
+- `Auto phase 4` printed at auto dryer start; the auto dryer sample fix (start in `SAMPLE_RUN`, 10 s pump,
+  10 s settle) is also unflashed.
+- Recharge cool down to 120 F, heat-up backstop, safety check after a real cool down, thermal trips at 255 F /
+  250 F: still never run on hardware (simulated only).
 
-### 5.3 Built or changed but not verified on hardware
-- **Auto dryer sample fix** (source and `.pio` image, not flashed): cycle starts in `SAMPLE_RUN`, 10 s pump, 10 s settle, then read. `DRYING` ignores readings for its first 10 s. `QUICK_SAMPLE` pumps first. Check the first cycle after flashing: `Auto phase 4`, about 10 s of `Pump ON`, then a settle, then a decision.
-- **Recharge cool down to 120 F** with the Celsius fix and the 2 h cap: has never run on the heater.
-- **Heat-up backstop (`HEATUP_TIMEOUT`)**: never triggered.
-- **Safety check after a real cool down:** never run on a cooled bed. Run7 failed it at 43% To-Engine, but the sample was taken hot, so that failure may not be real.
-- **Thermal trip at 255 F and the probe trip at 250 F:** I found no record of either firing on hardware.
-- **Message stays until OK:** compiled and flashed, never seen.
-- **Whether the beads dry to 15% at all.** About 6 h at temperature reached 43% with about 4 lb. The user has discussed halving the desiccant to about 2 lb; not done.
+### 5.3 Known issues still open
+1. **K1 relay channel** reported dead on three boards. No software cause found: the driver matches the reference
+   XL9535 driver register for register, and no firmware had driven K1 since the first raw sweep. Next step:
+   checklist section 3. Hypotheses: K1 wired to a P1 pin on these boards, the pin held low on the board, or the
+   12 V aux wiring on K1's contacts rather than the relay itself.
+2. **Display flashes:** cause identified (byte-swapped frames from PSRAM starvation); 14 MHz is a mitigation, not
+   proven. Next steps: 12 MHz, then Arduino core 3.x (ESP-IDF 5) with RGB bounce buffers.
+3. **Warning message vs screen saver:** the fix has never been seen working.
+4. **Vent baseline** is a running average over the whole recharge; it drifted about 23,000 counts in the first
+   hour of one run. Margin is large (steps 70,000-130,000), but watch it late in a long run.
+5. **Remote link is a MAC filter, not authentication.** ESP-NOW is unencrypted. Real authentication needs
+   encrypted unicast or a signed counter in `LinkCommand` (all three boards rebuilt).
+6. The 1 h heat-up backstop is not the user's number. The desiccant amount (4 lb vs about 2 lb) is undecided.
+7. Valve coil current check is disabled until the shunt is wired.
 
-### 5.4 v1 cleanup and refactoring roadmap (prioritized)
-Items marked **[user]** need a decision from the user first. Items marked **[hardware]** need the bench.
+### 5.4 Roadmap
+**Beta (now):** run `docs/BENCH_TEST_CHECKLIST.md` top to bottom. Exit criteria for v1.0: one unattended
+recharge ending S16 with the cool down reaching 120 F; a 12 h auto dryer run with a correct first sample; the
+stop message staying until OK; no display flashes in 50 page changes; then tag the tested commit.
 
-**P0: safety and trust**
-- [ ] **[user, hardware]** Look at the Waveshare and find out why COM4 disappeared. Do not flash until the user says the dryer test is over.
-- [ ] **[user]** Decide whether the vent pressure check should fail closed when pressure data is missing (5.2 item 3).
-- [ ] **[user]** Decide how remote commands should be protected: pairing or a shared key on the ESP-NOW link, and a confirm step for remote Recharge (5.2 item 4).
-- [ ] Fix the sensor-loss cool down loop (5.2 item 2): enter the failure cool down once, not on every pass, and decide what the pump does while sensors are missing.
-- [ ] **[user]** Decide whether to add a hardware or software watchdog (5.2 item 5).
-- [ ] **[hardware]** Run one full recharge to completion on the final build. Watch the first real cool down, the 120 F exit, the safety samples, and whether the stop message stays on screen.
-
-**P1: finish v1 behavior**
-- [ ] When the user says dryer run 2 is over: stop the capture processes, flash the sample-fix build to COM4 (pinned port), read it back, start a new capture before the dryer restarts, then check the first cycle (5.3).
-- [ ] **Single stop reason with log-once and on-screen button hints.** The user asked for this earlier. It is not done. Today several paths can print the same stop repeatedly.
-- [ ] Sensor node: send each reading twice or faster to cut radio dropouts (the node sends one unacknowledged broadcast per second).
-- [ ] Review the auto-recharge resume path before anyone enables the checkbox.
-- [ ] **Commit the work.** Everything since `accffcb` is uncommitted. Suggest a tag after the next verified run (the existing tag is `bench-2026-11-18`).
-- [ ] Record the first system test result in `docs/PROJECT_NOTES.md` once a run actually completes.
-- [ ] **[user]** Keep or remove the 1 h heat-up backstop. Consider halving the desiccant (4 lb to about 2 lb).
-- [ ] Confirm what firmware belongs on COM6 (the radio bridge). I flashed `nodes/heltec-radio` there. Whether it previously ran MeshCore is unconfirmed.
-
-**P2: cleanup (no behavior change, verify with a diff of the serial log)**
-- [ ] Delete the duplicate `#define VALVE_TREND_CHECK_ENABLED 0` (`config.h` lines 117 and 132).
-- [ ] Remove the retired humidity-trend block and its state (`evaluateValveVerification()`, `_valveBaselineRH`, `_valvePulseCount`, `_valveHighCount`). The function now always returns true.
-- [ ] Remove unreachable code: the `_ventBadPulses >= VENT_PRESSURE_SAMPLES` branch (a single bad pulse stops the cycle first) and the unused local `step` in `evaluateVentPressure()`.
-- [ ] Remove defines nothing reads: `VENT_PRESSURE_IDLE_BASELINE`, `RECHARGE_FAILED_FAN_MAX_MS`, `LOG_FILENAME` (a grep of `src/` and `include/` finds only the define itself; the disabled logger does not use it). `RECHARGE_HARD_OVERTEMP_F` is documentation only; keep it or move it to a comment. Remove `RECHARGE_TEST_MODE`, whose two branches are identical.
-- [ ] Remove members and methods with no readers: `_lastPurgeMs` (written, never read), `timeRemainingMs()`, `RelayDriver::printDiagnostics()` and `setTestOutputs()` (unless bench diagnostics are wanted).
-- [ ] Fix stale comments and text listed in section 4 (status text "6s max", the 15 s comment, XIAO mentions in `sensors.cpp`, `sensors.h`, `README.md`).
-- [ ] Replace hard-coded colors with `UI_BG_COLOR` and friends (`ui_logo.cpp` uses `0x0A1628`, `ui_dryer_setup.cpp` uses `0x1A2E4A`).
-- [ ] Pin `platform = espressif32@6.11.0` in all envs so a fresh checkout builds the same way. Add a `requirements.txt` for `pyserial`.
-- [ ] Make `tools/watch_pressure.py` and `tools/make_logo.py` take their ports and paths as arguments. Decide whether `peek_port.py` and `reset_and_peek.py` get committed.
-- [ ] Decide the fate of `nodes/xiao-sensor`, `nodes/heltec-sensor-test` and `firmware/xiao-sensor-known-good.bin` (retired or bench-only).
-- [ ] Merge the dated notes sections into current-state documentation and mark the old ones superseded, starting with the stale table in section 4.
-- [ ] `statemachine.cpp` is about 1,240 lines. Splitting recharge, auto dryer and thermal logic into separate files is an option, but only after the behavior above is verified. Do not refactor and change behavior in the same commit.
-
-**P3: later**
-- Display flicker (5.2 item 7), the radio drop cause (item 8), the bridge stale mode (item 9).
-- Custom two-board carrier, K9 heater disconnect and the Board A UART link (design text only in the notes; nothing built).
-- SD or other history logging. The web history page expects `/hangar.csv`, which nothing serves today.
-- Direct Wi-Fi or MQTT control. The notes warn that ESP-NOW and Wi-Fi share one radio, so the channel must match.
-
----
+**After v1.0:**
+- SD event and history logging. `Logger::logStop()` already receives every stop code; the CSV formats are in
+  `src/logging.cpp`. The Type B has no TF slot on the default pins; confirm the pins first.
+- Arduino core 3.x / ESP-IDF 5 for RGB bounce buffers (display), only with the display in front of you.
+- Authenticated remote link; MeshCore or Wi-Fi/MQTT path (channel must match ESP-NOW channel 1).
+- Custom two-board carrier (relay remap is a `RELAY_BIT_*` change in `config.h`), K9 heater disconnect.
+- Split `statemachine.cpp` (recharge, auto dryer, thermal) once the beta behavior is verified, never in the same
+  commit as a behavior change. The host simulation makes that refactor safe to check.
 
 ## 6. Critical "Do not touch / gotchas" warnings
 
@@ -517,6 +502,9 @@ Items marked **[user]** need a decision from the user first. Items marked **[har
 - **Cool down keeps the valves open.** The pump pulses 10 s every 10 min and exhaust goes outside. Closing the valves during cool down would let hot wet air toward the engine. The cool down ends at 120 F on purpose (a hangar can be that hot in summer, so it must not wait for a lower temperature).
 - **Vent peak must be tracked every loop** while the pump is on. Judging only the last packet before the phase timer is wrong. `_ventPulsePeak` is reset after each judgment so each pulse stands alone.
 - **The vent baseline uses pump-OFF samples only**, averaged and re-learned each recharge. Do not take the baseline while the pump runs.
+- **Readiness means a valid sample within 3 s** (`sampleFresh()` in `sensors.cpp`) for To-Engine, From-Engine and pressure. Requiring the latest packet's flag made one bad read look like a lost sensor (the host simulation showed a stalled recharge). The chamber keeps the stricter rule because it gates the heater.
+- **Never write NVS from a periodic path.** A flash write blocks the PSRAM bus and can glitch the RGB display. `run_state` writes only when a cycle starts or ends.
+- **Every pump pulse in a recharge needs a fresh vent reading** and is judged; a pulse with no pressure sample is not judged and does not count (`judgeVentPulse()`).
 - **Do not use a per-sensor 3 s freshness test as a stop condition.** That did exactly that in dryer mode on 2026-11-20 and stopped cycles whenever two radio frames in a row were lost (a 3.17 s gap). The 30 s grace replaced it. Do not bring back `SENSOR_LOST_HOLDOUT`, `HOLDOUT_RETRY_MS` or `chamberHoldoutPending()`. The old grace also had a hold condition that never ended.
 - **A fresh chamber reading is required to turn the heater on.** Keep that rule. The only exception is the existing hold of the previous command for up to 6 s (`CHAMBER_RETRY_MS`). The thermal check cannot run on a stale reading.
 - **Auto dryer sampling.** Reading From-Engine right after the pump starts returns old chamber air (13-15.7%). Waiting 30 s with the pump off lets engine air mix with dry chamber air and reads falsely low. The chosen pattern is 10 s pump, 10 s settle, read. The SHT40 is rated accurate at about 6 s.
@@ -549,6 +537,7 @@ Items marked **[user]** need a decision from the user first. Items marked **[har
 - Heater diagnostic pulses stay disabled on the future custom board until a test-energy budget is written down.
 
 ### Environment gotchas
+- When editing with shell heredocs, `\\n` can collapse to `\n` before the script sees it. Write edit scripts to a file instead.
 - Windows PowerShell paths. `pio.exe` lives under `%USERPROFILE%\.platformio\penv\Scripts`.
 - `docs/PROJECT_NOTES.md` is about 80 KB. Read it by section (`Select-String -Pattern '^## '`), not whole.
 - `src/logo_img.c` is 4.7 MB of generated data. Do not open it in an editor tool or search it.

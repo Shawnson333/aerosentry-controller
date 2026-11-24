@@ -1,5 +1,8 @@
 # AeroSentry Project Notes
 
+Newest sections are at the end. The latest is "2026-11-24 v1 beta build". Several older sections are stale;
+`HANDOFF.md` section 4 lists them, and where a note and the code disagree, the code wins.
+
 ## Audit restoration — 2026-11-20 (logger disabled + display restored)
 
 Restored the garbled commit to the bench-tested state (`bench-2026-11-18` / `35cd9ad`), then kept only the final confirmed rules. The previous notes claimed both "pulsing the pump with ambient air" and "valves closed so no ambient air" at the same time; both cannot be true. The restored cooldown keeps the valves OPEN (ambient air) and the pump ON, exactly as in the validated HEAD (`35cd9ad`/`accffcb`) behavior.
@@ -172,6 +175,9 @@ Leave these alone:
 - Do not host the remote page on the Heltec. Its Wi-Fi radio must stay on channel 1. The 30-day history page and SD logger are still deferred. The operator page shell is `web/index.html` and is not connected.
 
 ## Cycle rules
+
+*Superseded. Current values: 245 F target, 255 F trip, 6 h from first reaching target, 30 s sensor-loss grace,
+10 s sample settle, vent check fails closed. See `README.md` and `docs/ERROR_CODES.md`.*
 
 These setpoints are best guesses and will be tuned after testing. All sensors are logged during every cycle. Only the sensor a mode uses for control can stop that mode.
 
@@ -640,7 +646,9 @@ First run of the whole system in its normal operating mode: an **Auto Dryer** cy
 - Vent pressure readings, if any pump pulses run with the valve open. Auto dryer is a closed loop, so the valves should stay de-energized.
 - Anything that should not happen: sensor-lost stops, a screen message that disappears, or a reboot (the millisecond counter going backwards).
 
-**Result:** pending. Fill this in after the run.
+**Result:** run 1 was ended twice by sensor-dropout stops (fixed by the 30 s grace). Run 2 ran 10.3 h with
+no stop; the capture ended because the user unplugged the board (2026-11-24). Neither run had the auto dryer
+sample fix, so the first reading of each cycle was old chamber air.
 
 ## 2026-11-23 sensor dropouts stopped the first auto dryer test (my bug)
 
@@ -693,3 +701,71 @@ First run of the whole system in its normal operating mode: an **Auto Dryer** cy
 - The bridge `/api/status` keeps reporting a stale `Recharge` mode. Do not trust it for controller state.
 
 **Handoff:** `HANDOFF.md` and `.github/copilot-instructions.md` were written from an audit of the files on disk. No firmware source, header or `platformio.ini` was changed for them. Nothing from the 2026-11-20 to 2026-11-23 work is committed: 16 files are modified and `tools/peek_port.py` and `tools/reset_and_peek.py` are untracked on `main` at `accffcb`.
+
+## 2026-11-24 v1 beta build (nothing flashed)
+
+Built on branch `v1-beta` from `9a518b9`, one commit per step, every step building with no warnings. Firmware
+`1.0.0-beta.1`. **Nothing here has run on the hardware.** What to prove, in order, is in
+`docs/BENCH_TEST_CHECKLIST.md`. Stop codes are in `docs/ERROR_CODES.md`.
+
+**Auto dryer run 2 result.** The COM4 disconnect at 22:46:15 on 2026-11-23 was the user unplugging the board.
+Run 2 ran 10.3 h with no stop and no crash (grace-30 build, without the sample fix). That closes the
+"possible USB drop" item.
+
+**Decisions made by the user on 2026-11-24:**
+- Vent pressure check fails closed, with its own message. Every error state gets its own message, and the
+  future SD logger uses the same codes.
+- During a sensor-loss cool down the pump may run only while the vent pressure confirms the air goes outside;
+  without pressure, no pump.
+- No remote Recharge. A remote user cannot confirm the unit is somewhere safe.
+- Watchdog: add it if it cannot cause stoppages from sensor dropouts (it cannot; see below).
+- Recharge prompt reworded (safe location, gets hot, expels water from the discharge port; the "disconnect the
+  engine lines" text predates the valves). Starting a dryer with Auto Recharge on shows the same warning.
+
+**What changed (see `git log 9a518b9..v1-beta` for the detail):**
+- Stop codes S01-S18: specific cause (which sensor, which thermal limit, remote stop), the reading behind it,
+  what to do, and `<mode> ended. Code Sxx`. One serial line per stop: `Stop: S09 VALVE_SUSPECT mode=Recharge | ...`.
+  The format after `Stop:` changed; the saved analysis scripts only match the prefix. Admin lists the last 3.
+- Loop watchdog: the core's 5 s task watchdog did not watch `loop()` (only the core 0 idle task). It does now.
+  `setup()` turns the relays off before the 1 s console wait. A restart mid-cycle, or any watchdog / crash /
+  brownout reset, shows S18 with the cause at boot (a flag in NVS, written only at cycle start and stop).
+  Admin > Relay test > Watchdog test freezes `loop()` on purpose to prove it on the bench. Sensor dropouts are
+  handled inside `loop()`, so they cannot trip it.
+- Recharge sensor loss: the old failure cool down was re-entered on every pass, so its timer never ran out, and
+  the pump stayed in whatever state it had, which could mean on for good. Now: the pump stops at once, a cut
+  pulse is re-run (not judged), the failure cool down is entered once and advances on time even if the sensors
+  never return, and a failure during the safety check stops at once. Heat-up timeout cools down before
+  stopping.
+- Vent pressure: required to start a recharge (also an automatic one), a required reading during the recharge
+  (S08 after the grace), the first pulse waits for the baseline, and cool down and safety pulses are judged
+  too (they were not checked at all). A pulse with no pressure sample is not judged and does not count.
+- Readiness: To-Engine, From-Engine and pressure count as ready when a valid sample arrived within 3 s. One bad
+  read used to make a sensor "missing" at once; the host simulation showed one bad pressure read in five
+  stalled a recharge forever. The chamber keeps the stricter rule. The From-Engine wait at pulse end is gone
+  (it only fed the retired trend check).
+- Remote: Recharge refused; starts only from the bridge MAC `10:BD:A3:5A:7C:94` (sender of all 37,165 beacons
+  in the run 2 log); Stop from anyone; Auto Recharge armed per cycle only for a dryer started at the screen;
+  remote commands no longer overwrite settings. Phone page and bridge updated; the bridge now marks status stale
+  after 6 s (the stale "Recharge" report) and parses "Dryer Manual".
+- Screens: new Recharge prompt with Back; unattended-recharge warning; the two Auto Recharge checkboxes stay in
+  sync (each read the setting only once); valves shown on the main screen; long messages use the 20 px font.
+- Display: pixel clock 16 -> 14 MHz (`DISPLAY_PCLK_HZ`). The flash colors are byte-swapped frames: navy 0x08A5
+  swapped is gold 0xA508, panel blue 0x1969 swapped is magenta 0x6919. The LCD DMA slipped a byte because
+  PSRAM (shared with flash) could not keep up. IDF 4.4 has no bounce buffer, so this lowers the demand. The
+  full fix is Arduino core 3.x with bounce buffers.
+- K1: no software cause found. The driver matches the reference XL9535 driver byte for byte, and no firmware has
+  driven K1 since the first raw sweep. Admin > Relay test pulses any P0/P1 pin and reads the pin back. Boot
+  prints an I2C bus scan.
+- Sensor node sends every packet twice, 30 ms apart; the controller keeps the first copy (same sequence
+  number). Packet layout unchanged.
+- Auto dryer start now prints `Auto phase 4`. It did not before, so the post-flash check in `HANDOFF.md` would
+  have looked like a failure.
+- Cleanup: retired trend check, unused members and defines, `RECHARGE_TEST_MODE`, initializer order, named
+  colors, stale comments. Tools take ports and paths as arguments. The XIAO node moved to `archive/`.
+- Platform pinned to `espressif32@6.11.0`.
+- `tools/host_test.py` builds the real controller logic for the PC with simulated sensors, relays, radio and
+  a chamber, and runs 27 scenarios (124 checks) with safety invariants checked at every step.
+
+**Not verified:** everything above on the hardware; the 14 MHz panel; the bridge MAC filter with the real
+bridge; the watchdog reset timing and relay drop; the XL9535 holding its outputs through a reset; cool down
+and safety pulses showing the step on a cold chamber.

@@ -1,35 +1,73 @@
 # AeroSentry Controller
 
-Hangar-based aircraft-engine dehumidifier controller.
+Hangar-based aircraft-engine dehumidifier controller. Firmware version `1.0.0-beta.1` (`FIRMWARE_VERSION` in
+`include/config.h`).
 
-## Current hardware
+Start here: `HANDOFF.md` (full context), `docs/BENCH_TEST_CHECKLIST.md` (what still has to be proven on the
+hardware), `docs/ERROR_CODES.md` (stop codes S01-S18), `docs/PROJECT_NOTES.md` (dated engineering log).
 
-- **Display/controller:** Waveshare ESP32-S3 4.3-inch Capacitive Touch LCD Development Board **Type B with case**, 800x480, ST7262 RGB LCD and GT911 touch.
-- **I2C:** GPIO 8 (SDA), GPIO 9 (SCL). GT911 is detected at 0x5D.
-- **Sensor node:** No-display Heltec WiFi LoRa 32 V4.3 on ESP-NOW channel 1. Firmware is `nodes/heltec-sensor`. To-Engine SHT40 uses GPIO 17/18. From-Engine SHT40 uses GPIO 15/16. Both probes answer at 0x44 on separate buses. The 100K NTC 3950 uses GPIO 4 with the external 10k resistor to ground. GPIO 3 reads a 1-ohm shunt in the recharge valve's 12 V return (coil current sense, disabled until the shunt is wired). GPIO 47/48 read the vent pressure module (HX711). Sensor packets are version 3; the Waveshare and sensor node flash together. The XIAO is no longer needed on the bench.
-- **Relay board:** 8-channel XL9535 at I2C address 0x21, with 3.3V logic and a separate 5V relay supply. Outputs are active-high. On the current bench board: K2 is the pump, K3 the heater, K4 the case fan, K5 the To-Engine valve (dump to atmosphere), and K6 the From-Engine valve (fresh air intake for recharge); both valves are energized together during recharge. K1, K7 and K8 are aux outputs (K1 = switched 12 V, K7/K8 = 120 V AC); all eight channels are enabled in the driver but no cycle drives the aux outputs. The bench board has a faulty K1 channel, so leave bit 0 alone. A custom two-board carrier is planned that groups the relays by supply domain (K1-K4 = 120 V AC, K5-K8 = 12 V DC) — see `docs/PROJECT_NOTES.md` for the intended map and the full design spec.
-- **RTC:** DS3231M at I2C address 0x68, connected to the relay board's second I2C header. It shares GPIO 8/9 and is powered from 3.3V, not the relay coil supply.
+## Hardware
 
-## Build and upload
+- **Controller:** Waveshare ESP32-S3 4.3-inch Touch LCD **Type B**, 800x480, ST7262 RGB panel, GT911 touch,
+  LVGL 8.3.11. The root PlatformIO project.
+- **I2C (GPIO 8 SDA / 9 SCL, 100 kHz):** XL9535 relays 0x21, DS3231M RTC 0x68 (3.3 V only), GT911 0x5D,
+  CH422G 0x24/0x38. Boot prints every address that answers.
+- **Sensor node:** no-display Heltec WiFi LoRa 32 V4.3 (`nodes/heltec-sensor`). To-Engine SHT40 on 17/18,
+  From-Engine SHT40 on 15/16, chamber 100K NTC on 4, valve shunt on 3, HX711 vent pressure DOUT 48 / SCK 47
+  (3.3 V only). Sends packet version 3 on ESP-NOW channel 1 about once a second, each packet twice.
+- **Radio bridge:** a second Heltec V4.3 (`nodes/heltec-radio`) on USB to the PC running
+  `tools/remote_bridge.py`.
+- **Relays (XL9535 port 0, active-high):** K2 pump, K3 heater mat (120 V AC), K4 case fan, K5 To-Engine valve
+  (energized = dump to atmosphere), K6 From-Engine valve (energized = fresh-air intake). K1 (12 V aux) and
+  K7/K8 (120 V AC aux) are not driven. **K1 has been reported dead on three boards; see Admin > Relay test.**
+- Mechanical thermal fuse 266 F on the heater: hardware only.
 
-From this directory (Windows):
+## Cycles
+
+- **Purge / Manual dryer:** pump, To-Engine 40% saturation stop.
+- **Auto dryer:** samples (10 s pump, 10 s settle, read From-Engine), dries to the target RH, samples hourly.
+  With Auto Recharge on (set at the screen, with a warning) a saturated dryer runs a recharge by itself and
+  then resumes.
+- **Recharge:** both valves vent outside; heater ramps to 245 F and holds 240-245 F; 10 s pump pulses every
+  minute, each confirmed by the vent pressure step; three To-Engine samples at or below 15% end it; 6 h limit
+  from first reaching 245 F; then cool down (fan, valves open, confirmed pulses) to 120 F or 2 h, and two safety
+  samples at or below 15%.
+
+## Safety summary
+
+- Software thermal trip: chamber 255 F, humidity probes 250 F. Starts are refused above them.
+- Heater is never newly enabled without a fresh chamber reading.
+- Vent pressure check **fails closed**: no recharge and no pump pulse without a fresh pressure reading; one
+  pulse without the 20,000-count step stops the cycle (S09).
+- Sensor loss: 30 s grace, then stop (dryers) or a failure cool down that advances on time (recharge).
+- Loop watchdog (5 s). Every relay is turned off first thing at boot, and a restart mid-cycle is reported (S18).
+- Remote: Recharge cannot be started remotely, remote dryer starts never arm Auto Recharge, starts are accepted
+  only from the bridge MAC, Stop is accepted from anyone.
+- Every stop has a code, a cause, an action, and one serial line: `Stop: S09 VALVE_SUSPECT mode=Recharge | ...`.
+
+## Build, test, flash (Windows PowerShell, repo root)
 
 ```powershell
-& "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe" run
-& "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe" run --target upload --upload-port COM4
-& "$env:USERPROFILE\.platformio\penv\Scripts\python.exe" tools/capture_serial.py --port COM4 --seconds 20 --reset
+$pio = "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe"
+$py  = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
+& $pio run                                   # controller
+& $pio run -d nodes/heltec-sensor            # sensor node
+& $pio run -d nodes/heltec-radio             # radio bridge
+& $py tools/host_test.py                     # host simulation of the controller logic (no board needed)
+& $pio run --target upload --upload-port COM4    # flash the Waveshare: only when told; always pin the port
+& $py tools/capture_serial.py --port COM4 --seconds 20 --reset
 ```
 
-## Implementation status
+The platform is pinned to `espressif32@6.11.0` (Arduino-ESP32 2.0.17) in every environment. The host test
+needs PlatformIO's MinGW compiler once: `pio pkg install -g --tool "platformio/toolchain-gccmingw32"`.
+Python tools need `pip install -r requirements.txt`.
 
-- Direct ESP-IDF RGB driver and LVGL 8.3.11 work on the Type B display.
-- Checkpoint 2026-11-23: first system operating test started, an Auto Dryer cycle with auto recharge off, on the build with the cool down fix. Details and the log location are in `docs/PROJECT_NOTES.md`. No completed run yet: it was ended twice by sensor-dropout stops (fixed by a 30 s grace), and a second run reached 10.3 h with no stop before its serial log ended (see the notes).
-- Checkpoint 2026-11-18: bench all-up test passed except the valves. Known-good firmware is `35cd9ad`, tag `bench-2026-11-18`. The Waveshare was not reflashed that night. The sensor node was. USS-PSV00033 does not divert; do not buy it again. Details are in `docs/PROJECT_NOTES.md`.
-- Checkpoint 2026-11-11: phone page works through Tailscale at `http://100.110.107.102:8080/` while `tools/remote_bridge.py` is running. Heltec forwards commands on ESP-NOW channel 1. Starts stay refused until the relay board is reconnected. A no-display V4.3 is proposed to replace the XIAO. Wiring is in `docs/PROJECT_NOTES.md`. That firmware is not written yet.
-- Main, warning, Manual Dryer Setup, Auto Cycle, and editable clock screens are implemented.
-- Mode start commands require the sensor that mode actually uses. A missing required sensor blocks Start with a sensor-unavailable warning.
-- Purge and manual dryer watch To-Engine for the 40% hard-stop. Auto watches both humidity sensors. Recharge ramps the heater 30 s on / 15 s off up to 245F, then holds 245F (back on at 240F) on the chamber thermistor. It ends on three consecutive To-Engine readings at or below 15%. After 6 hours at temperature (counted from first reaching 245F) it cools down and runs the safety check before stopping. If the chamber has not reached 245F within 1 hour, it stops. Chamber temperature above 255F, or either humidity-sensor temperature above 250F, stops all outputs. A mechanical thermal fuse at 266F is the hardware backstop. Dryer start warns if no purge has run in the last hour.
-- The Waveshare listens for the XIAO packet on ESP-NOW channel 1. Until a packet arrives, the screen stays on Sensors offline. The chamber 10k divider is installed; Recharge stays blocked until that chamber reading is valid.
-- The DS3231M now provides battery-backed time at address 0x68. It is read at startup and once a minute. Set Clock adjustments are written immediately, and Done commits the displayed time even if no field changed. A saved software clock remains available as a fallback, but that fallback does not count time spent powered off.
+## Layout
 
-See `docs/PROJECT_NOTES.md` for behavior notes and future expansion.
+- `src/`, `include/`: controller. All pins, thresholds and timings are in `include/config.h`.
+- `common/`: packet layouts shared by the controller and both nodes (change only with all three rebuilt).
+- `nodes/heltec-sensor`, `nodes/heltec-radio`, `nodes/heltec-sensor-test` (serial-only bench test).
+- `test/host/`: stubs, fakes and scenarios for `tools/host_test.py`.
+- `tools/`: serial capture, remote bridge, logo generator, host test runner.
+- `web/`: phone control page and the history page mockup.
+- `archive/`: the retired XIAO ESP32-C3 sensor node.
