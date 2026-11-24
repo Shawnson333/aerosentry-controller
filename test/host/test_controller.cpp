@@ -596,6 +596,27 @@ static void testDuplicatePacketsCountedOnce() {
     EXPECT(stateMachine.command(Command::START_DRYER_AUTO), "auto start refused with duplicated packets");
 }
 
+static void testRelayBusOverlap() {
+    reset("CH422G answers at the relay address: read-back test flags it, outputs stay right");
+    Plant p;
+    runFor(p, 2000);
+    char report[120];
+    EXPECT(!relay.readbackTest(report, sizeof(report)), "read-back test passed with the overlap");
+    EXPECT(strstr(report, "wrote A5 5A read 24 58") != nullptr, "report: %s", report);
+    EXPECT(hostXl9535[4] == 0x00 && hostXl9535[5] == 0x00, "polarity not restored");
+    // The driver never reads back, so K1 and the bits the CH422G clears stay as commanded.
+    relay.aux12vOn();
+    relay.fanOn();
+    relay.pumpOn();
+    EXPECT(hostXl9535[2] == ((1 << RELAY_BIT_AUX_12V) | (1 << RELAY_BIT_FAN) | (1 << RELAY_BIT_PUMP)),
+           "outputs %02X after three writes", hostXl9535[2]);
+    EXPECT(relay.commandedPort0() == hostXl9535[2], "commanded state differs from the outputs");
+    relay.allOff();
+    hostCh422Overlap = false;
+    EXPECT(relay.readbackTest(report, sizeof(report)), "read-back test failed on a clean bus: %s", report);
+    hostCh422Overlap = true;
+}
+
 static void testRestartReport() {
     reset("Restart during a cycle: S18 message names the cycle and the cause");
     stateMachine.reportRestart(SystemMode::RECHARGE, "The controller froze and the watchdog restarted it.");
@@ -636,6 +657,7 @@ int main(int argc, char** argv) {
     testLocalDryerArmsAutoRecharge();
     testRelayTestPulse();
     testDuplicatePacketsCountedOnce();
+    testRelayBusOverlap();
     testRestartReport();
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

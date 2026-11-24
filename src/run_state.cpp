@@ -20,7 +20,7 @@ const char* runStateResetCause() {
         case ESP_RST_BROWNOUT: return "The supply voltage dropped too low.";
         case ESP_RST_SW:       return "The controller restarted itself.";
         case ESP_RST_EXT:      return "The reset line was pulled (reset button or USB).";
-        default:               return "The restart cause is unknown.";
+        default:               return "Reset over USB (flashing or a serial tool), or the cause is unknown.";
     }
 }
 

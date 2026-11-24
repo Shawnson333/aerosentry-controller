@@ -2,15 +2,15 @@
 
    Every XL9535 pin on both ports gets a button. A tap drives that one pin
    high for RELAY_TEST_PULSE_MS, then the outputs return to normal (all off
-   while idle). During the pulse the screen reads the chip back:
-     output register  - what the firmware asked for
-     input register   - the level actually on the pin
-   so a dead channel can be pinned down:
-     output 1, input 1, no click   -> the pin is driven; the fault is on the
-                                      relay board (driver, LED, coil) or the
-                                      relay is wired to a different pin
-     output 1, input 0             -> something on the board holds the pin low
-     another pin clicks K1         -> K1 is mapped to that pin
+   while idle). Watch and listen: the click and the relay LED are the result.
+
+   Register read-back is shown but NOT trusted: on this bus the CH422G also
+   answers at the XL9535 address and its bits are ANDed into every read
+   (proven by the polarity-register readback test, 2026-11-24). Writes are
+   clean, so the commanded line is what the pins are told to do.
+     P0.0 clicks K1             -> K1 works; "dead K1" was the read-back fault
+     P0.0 driven, no click      -> relay board fault, or K1 on another pin
+     another pin clicks K1      -> K1 is mapped to that pin
    Only while idle: cycle starts are refused during a pulse. K3 is the mains
    heater and K7/K8 are mains outputs; a 2 s pulse is a bench check only. */
 
@@ -74,10 +74,17 @@ static void cbWatchdogTest(lv_event_t* e) {
 
 static void cbRescan(lv_event_t* e) {
     (void)e;
-    char found[96];
+    char found[160];
     RelayDriver::scanBus(found, sizeof(found));
-    char text[140];
-    snprintf(text, sizeof(text), "I2C bus: %s  (expect 0x21 relays, 0x24/0x38 CH422G, 0x5D touch, 0x68 RTC)", found);
+    char readback[120] = "relay board not answering";
+    bool clean = false;
+    if (relay.isReady() && !relay.testActive()) clean = relay.readbackTest(readback, sizeof(readback));
+    char text[360];
+    snprintf(text, sizeof(text),
+             "I2C bus: %s\n"
+             "Relay readback (polarity register): %s -> %s",
+             found, readback,
+             clean ? "clean" : "MISMATCH: another device answers at the relay address, readings above may be wrong");
     lv_label_set_text(busLabel, text);
 }
 
@@ -168,14 +175,14 @@ void uiUpdateRelayTest() {
         snprintf(text, sizeof(text), "Relay board not answering at 0x%02X.", XL9535_ADDR);
     } else {
         snprintf(text, sizeof(text),
-                 "%s%s\n"
-                 "Output   P0 0x%02X  P1 0x%02X   (what the firmware drives)\n"
-                 "Input    P0 0x%02X  P1 0x%02X   (level actually on the pins)\n"
-                 "Config   P0 0x%02X  P1 0x%02X   (0 = output)   Polarity P0 0x%02X P1 0x%02X\n"
-                 "Driven pin reads 1 but no click: relay board fault or wired to another pin.\n"
-                 "Driven pin reads 0: something on the board holds it low.",
+                 "%s%s.  Commanded: P0 0x%02X  P1 0x%02X  (what the pins are told; writes are clean)\n"
+                 "Read-back, NOT reliable on this bus (CH422G answers here too):\n"
+                 "  output P0 0x%02X P1 0x%02X   input P0 0x%02X P1 0x%02X   config %02X %02X   polarity %02X %02X\n"
+                 "The result is the click and the relay LED. P0.0 clicks K1: K1 works.\n"
+                 "P0.0 driven but no click: board fault, or K1 is on another pin (try P1).",
                  relay.testActive() ? "Driving " : (lastPin[0] ? "Last pulse " : "Idle. Tap a pin."),
-                 lastPin, out0, out1, in0, in1, cfg0, cfg1, pol0, pol1);
+                 lastPin, relay.commandedPort0(), relay.commandedPort1(),
+                 out0, out1, in0, in1, cfg0, cfg1, pol0, pol1);
         if (relay.testActive()) {
             Serial.printf("Relay test %s: output %02X %02X input %02X %02X config %02X %02X\n",
                           lastPin, out0, out1, in0, in1, cfg0, cfg1);

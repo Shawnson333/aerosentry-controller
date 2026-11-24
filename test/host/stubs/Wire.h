@@ -22,4 +22,8 @@ extern TwoWire Wire;
    Input reads back the output level of pins configured as outputs. */
 extern uint8_t hostXl9535[8];
 extern bool hostXl9535Present;
+/* The Waveshare CH422G also answers reads at 0x20-0x27; its bytes are ANDed
+   into every read at the relay address (bench 2026-11-24: 0x26 0xFD). */
+extern bool hostCh422Overlap;
+extern uint8_t hostCh422Answer[2];
 uint8_t hostRelayPort0();

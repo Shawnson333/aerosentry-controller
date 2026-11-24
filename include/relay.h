@@ -55,6 +55,13 @@ public:
        starts are refused while a pulse is active. */
     bool testPulseStart(uint8_t port, uint8_t bit, uint32_t ms);
     bool testActive() const { return _testActive; }
+
+    /* What the firmware is driving right now, port 0 and port 1, including a
+       test pulse. Use this, not a register read, to show relay states: on the
+       Waveshare bus a register read at XL9535_ADDR comes back ANDed with the
+       CH422G's answer (see readbackTest), so read-back bits are not reliable. */
+    uint8_t commandedPort0() const { return _testActive ? _testPort0 : _state; }
+    uint8_t commandedPort1() const { return _testActive ? _testPort1 : 0x00; }
     /* Ends a test pulse when its time is up. Call every loop. */
     void update();
 
@@ -62,9 +69,16 @@ public:
        0x04 polarity, 0x06 config (0 = output). */
     bool readPair(uint8_t reg, uint8_t &port0, uint8_t &port1);
 
-    /* List the 7-bit addresses that ACK on the shared I2C bus, e.g.
-       "0x21 0x24 0x38 0x5D 0x68". Takes about 30 ms. */
+    /* List the 7-bit addresses that ACK on the shared I2C bus, runs joined:
+       "0x20-0x27 0x30-0x3F 0x5D 0x68". Takes about 30 ms. */
     static void scanBus(char *out, size_t size);
+
+    /* Read-back check (2026-11-24): write test patterns to the polarity
+       register (it only changes how INPUT pins read, never the outputs) and
+       read them back. A mismatch means a second device answers at
+       XL9535_ADDR and corrupts reads. Restores polarity 0x00 0x00. Returns
+       true when every pattern read back exactly; report gets the details. */
+    bool readbackTest(char *report, size_t size);
 
 private:
     uint8_t _addr;
@@ -73,6 +87,8 @@ private:
     bool _testActive;
     uint32_t _testStartMs;
     uint32_t _testMs;
+    uint8_t _testPort0;
+    uint8_t _testPort1;
 
     bool writePairChecked(uint8_t reg, uint8_t port0, uint8_t port1);
     void writePair(uint8_t reg, uint8_t port0, uint8_t port1);

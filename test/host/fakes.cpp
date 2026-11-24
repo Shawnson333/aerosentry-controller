@@ -36,6 +36,8 @@ size_t HostSerial::printf(const char* format, ...) {
 /* ---------- XL9535 ---------- */
 uint8_t hostXl9535[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF};
 bool hostXl9535Present = true;
+bool hostCh422Overlap = true;
+uint8_t hostCh422Answer[2] = {0x26, 0xFD};
 static uint8_t wireAddress = 0;
 static uint8_t wireTx[16];
 static size_t wireTxLen = 0;
@@ -80,7 +82,8 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t count) {
     if (address != XL9535_ADDR || !hostXl9535Present) return 0;
     uint8_t reg = wireRegPointer;
     for (uint8_t i = 0; i < count && i < sizeof(wireRx); ++i) {
-        wireRx[wireRxLen++] = hostXl9535[reg];
+        const uint8_t overlap = hostCh422Overlap ? hostCh422Answer[i % 2] : 0xFF;
+        wireRx[wireRxLen++] = (uint8_t)(hostXl9535[reg] & overlap);
         reg = (uint8_t)((reg & 0x06) | ((reg + 1) & 0x01));
     }
     return (uint8_t)wireRxLen;

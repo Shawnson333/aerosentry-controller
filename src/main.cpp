@@ -59,9 +59,15 @@ void setup() {
         relay.begin();
     }
 
-    char devices[96];
+    char devices[160];
     RelayDriver::scanBus(devices, sizeof(devices));
     Serial.printf("I2C devices: %s\n", devices);
+    if (relay.isReady()) {
+        char readback[120];
+        const bool clean = relay.readbackTest(readback, sizeof(readback));
+        Serial.printf("XL9535 readback test: %s -> %s\n", readback,
+                      clean ? "clean" : "MISMATCH: another device answers at the relay address");
+    }
 
     if (sensorsBegin()) {
         Serial.println(F("Sensor receiver ready"));

@@ -108,8 +108,10 @@ void uiUpdateAdmin() {
     reading(chamber, sizeof(chamber), chamberReady(),
             sensors.chamberTemp * 9.0f / 5.0f + 32.0f, "F");
 
-    uint8_t port0 = 0, port1 = 0;
-    const bool relaysLive = relay.isReady() && relay.readPair(0x02, port0, port1);
+    // Commanded state, not a register read: reads at the relay address are
+    // corrupted by the CH422G on this bus (see relay.cpp).
+    const uint8_t port0 = relay.commandedPort0();
+    const bool relaysLive = relay.isReady();
     char relays[96] = "offline";
     if (relaysLive) {
         snprintf(relays, sizeof(relays),
