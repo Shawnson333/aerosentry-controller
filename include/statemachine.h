@@ -26,22 +26,43 @@ enum class Command {
     START_DRYER_MANUAL,
     START_DRYER_AUTO,
     START_RECHARGE,
-    STOP
+    STOP,
+    STOP_REMOTE     // STOP from the remote page; same effect, its own stop code
 };
 
-enum class StopReason {
-    NONE,
-    USER,
-    SATURATED,
-    SENSOR_LOST,
-    RECHARGE_COMPLETE,
-    RECHARGE_MAX_TIME,
-    THERMAL,
-    VALVE_SUSPECT,
-    VALVE_NO_CURRENT,
-    SAFETY_FAILED,
-    HEATUP_TIMEOUT
+/* Every way a cycle can end. The number is the stop code shown on screen
+   ("Code S09") and written to the serial log and the future SD event log.
+   Never renumber or reuse a code: logs and notes refer to them. A new reason
+   takes the next free number. The full list is in docs/ERROR_CODES.md. */
+enum class StopReason : uint8_t {
+    NONE               = 0,
+    USER               = 1,   // Stop pressed on the screen
+    USER_REMOTE        = 2,   // Stop from the remote page
+    SATURATED          = 3,   // To-Engine above 40% for 30 s (not in recharge)
+    SENSOR_NODE_SILENT = 4,   // No packets from the sensor node
+    TO_ENGINE_LOST     = 5,
+    FROM_ENGINE_LOST   = 6,
+    CHAMBER_LOST       = 7,
+    VENT_SENSOR_LOST   = 8,   // Vent pressure missing, valve position unconfirmed
+    VALVE_SUSPECT      = 9,   // Pump pulse without the vent pressure step
+    VALVE_NO_CURRENT   = 10,  // Coil current check (disabled until the shunt is wired)
+    THERMAL_CHAMBER    = 11,
+    THERMAL_TO_PROBE   = 12,
+    THERMAL_FROM_PROBE = 13,
+    HEATUP_TIMEOUT     = 14,
+    SAFETY_FAILED      = 15,
+    RECHARGE_COMPLETE  = 16,
+    RECHARGE_MAX_TIME  = 17,
+    CONTROLLER_RESTART = 18,  // Power loss, watchdog or crash during a cycle (shown at boot)
 };
+
+/* Stable upper-case name for a stop code, e.g. "VALVE_SUSPECT". */
+const char* stopReasonName(StopReason reason);
+
+/* Write the on-screen text for a stop into buf: title, detail, what to do,
+   and "<mode> ended. Code Sxx". detail may be nullptr for the default line. */
+void formatStopMessage(char* buf, size_t size, StopReason reason, SystemMode mode,
+                       const char* detail, bool afterCooldown);
 
 struct ModeConfig {
     uint8_t  dryerOnMinutes;    // 1-5 min, manual pump-on time
@@ -100,7 +121,8 @@ private:
     SystemMode _mode;
     Command _pendingCmd;
     StopReason _stopReason;
-    const char* _stopMessage;
+    const char* _stopMessage;       // Points at _stopText while a message waits for the UI
+    char _stopText[360];
     ManualPhase _manualPhase;
     AutoPhase _autoPhase;
     RechargePhase _rechargePhase;
@@ -162,7 +184,12 @@ private:
 
     bool handleCommand();
     void enterMode(SystemMode newMode);
-    void stopWith(StopReason reason);
+    /* End the cycle: all outputs off, valves closed, one log line, one message.
+       detail replaces the default second line; afterCooldown adds the line
+       that says the chamber was cooled with the valves venting first. */
+    void stopWith(StopReason reason, const char* detail = nullptr, bool afterCooldown = false);
+    StopReason sensorLossReason() const;
+    StopReason thermalFault(float &fahrenheit) const;
     void updatePurge();
     void updateManual();
     void updateAuto();
@@ -170,7 +197,6 @@ private:
     void checkSaturation();
     void resetSaturation();
     void checkThermal();
-    bool thermalExceeded() const;
     void applyOutputs();
     void updateFan();
     void regulateHeater();

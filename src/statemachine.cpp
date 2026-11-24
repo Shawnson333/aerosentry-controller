@@ -38,6 +38,159 @@ const char* systemModeName(SystemMode mode) {
     }
 }
 
+/* Stop texts, indexed by the StopReason number. The name is the stable log
+   name. The title is the first line on screen and the action says what to
+   do next. The second line comes from defaultStopDetail() unless the caller
+   passes a more specific one (a temperature, a pressure step). */
+struct StopText {
+    const char* name;
+    const char* title;
+    const char* action;
+};
+
+static const StopText STOP_TEXTS[] = {
+    /*  0 */ {"NONE",               "Cycle stopped.",                          nullptr},
+    /*  1 */ {"USER_STOP",          "Stopped.",                                nullptr},
+    /*  2 */ {"REMOTE_STOP",        "Stopped from the remote page.",           nullptr},
+    /*  3 */ {"SATURATED",          "Desiccant saturated.",                    "Run a Recharge before the next dryer cycle."},
+    /*  4 */ {"SENSOR_NODE_SILENT", "Sensor node not responding.",            "Check the sensor node power and its antenna."},
+    /*  5 */ {"TO_ENGINE_LOST",     "To-Engine sensor lost.",                  "Check the To-Engine probe and its cable."},
+    /*  6 */ {"FROM_ENGINE_LOST",   "From-Engine sensor lost.",                "Check the From-Engine probe and its cable."},
+    /*  7 */ {"CHAMBER_LOST",       "Chamber thermistor lost.",                "Check the thermistor and its cable."},
+    /*  8 */ {"VENT_SENSOR_LOST",   "Vent pressure sensor lost.",              "Check the pressure module, its cable and its tube."},
+    /*  9 */ {"VALVE_SUSPECT",      "Valve position suspect.",                 "Moisture may reach the engine. Check both valves and the vent line."},
+    /* 10 */ {"VALVE_NO_CURRENT",   "Valve coil fault.",                       "Check the valve wiring and the 12 V supply."},
+    /* 11 */ {"THERMAL_CHAMBER",    "Chamber over temperature.",               "Let it cool. Check the heater control and the thermistor."},
+    /* 12 */ {"THERMAL_TO_PROBE",   "To-Engine probe over temperature.",       "Let it cool. Check where the probe is mounted."},
+    /* 13 */ {"THERMAL_FROM_PROBE", "From-Engine probe over temperature.",     "Let it cool. Check where the probe is mounted."},
+    /* 14 */ {"HEATUP_TIMEOUT",     "Chamber did not reach target temperature.", "Check the heater mat, its fuse and the thermistor."},
+    /* 15 */ {"SAFETY_FAILED",      "Safety check failed.",                    "The desiccant is still wet. Run another Recharge."},
+    /* 16 */ {"RECHARGE_COMPLETE",  "Recharge complete.",                      nullptr},
+    /* 17 */ {"RECHARGE_MAX_TIME",  "Recharge reached its time limit.",        "The desiccant may not be fully dry. Consider another Recharge."},
+    /* 18 */ {"CONTROLLER_RESTART", "Controller restarted during a cycle.",    "All outputs were off at restart. Check the unit before starting again."},
+};
+
+static const StopText& stopText(StopReason reason) {
+    const size_t index = (size_t)reason;
+    if (index >= sizeof(STOP_TEXTS) / sizeof(STOP_TEXTS[0])) return STOP_TEXTS[0];
+    return STOP_TEXTS[index];
+}
+
+const char* stopReasonName(StopReason reason) {
+    return stopText(reason).name;
+}
+
+static void defaultStopDetail(StopReason reason, char* buf, size_t size) {
+    const unsigned long graceSeconds = SENSOR_LOSS_GRACE_MS / 1000UL;
+    switch (reason) {
+        case StopReason::USER_REMOTE:
+            snprintf(buf, size, "All outputs are off.");
+            break;
+        case StopReason::SATURATED:
+            snprintf(buf, size, "To-Engine stayed above %.0f%% for %lu s with the pump on.",
+                     SAT_LIMIT_RH, (unsigned long)(SAT_HOLD_MS / 1000UL));
+            break;
+        case StopReason::SENSOR_NODE_SILENT:
+            snprintf(buf, size, "No radio data from the sensor node for %lu s.", graceSeconds);
+            break;
+        case StopReason::TO_ENGINE_LOST:
+            snprintf(buf, size, "No valid To-Engine reading for %lu s.", graceSeconds);
+            break;
+        case StopReason::FROM_ENGINE_LOST:
+            snprintf(buf, size, "No valid From-Engine reading for %lu s.", graceSeconds);
+            break;
+        case StopReason::CHAMBER_LOST:
+            snprintf(buf, size, "No valid chamber temperature for %lu s.", graceSeconds);
+            break;
+        case StopReason::VENT_SENSOR_LOST:
+            snprintf(buf, size, "No vent pressure reading, so the valve position could not be confirmed.");
+            break;
+        case StopReason::VALVE_SUSPECT:
+            snprintf(buf, size, "A pump pulse did not raise the vent pressure %ld counts.",
+                     (long)VENT_PRESSURE_MIN_STEP);
+            break;
+        case StopReason::VALVE_NO_CURRENT:
+            snprintf(buf, size, "No coil current while the valves were energized.");
+            break;
+        case StopReason::THERMAL_CHAMBER:
+            snprintf(buf, size, "Chamber passed %d F. All outputs off.", THERMAL_CHAMBER_F);
+            break;
+        case StopReason::THERMAL_TO_PROBE:
+            snprintf(buf, size, "To-Engine probe passed %d F. All outputs off.", THERMAL_SENSOR_F);
+            break;
+        case StopReason::THERMAL_FROM_PROBE:
+            snprintf(buf, size, "From-Engine probe passed %d F. All outputs off.", THERMAL_SENSOR_F);
+            break;
+        case StopReason::HEATUP_TIMEOUT:
+            snprintf(buf, size, "Still below %d F after %lu min of heating.",
+                     RECHARGE_TARGET_TEMP_F, (unsigned long)(RECHARGE_HEATUP_MAX_MS / 60000UL));
+            break;
+        case StopReason::SAFETY_FAILED:
+            snprintf(buf, size, "To-Engine was above %.0f%% after the cool down.", RECHARGE_TARGET_RH);
+            break;
+        case StopReason::RECHARGE_COMPLETE:
+            snprintf(buf, size, "%u dry samples, then %u safety samples at or below %.0f%%.",
+                     (unsigned)RECHARGE_GOOD_CYCLES, (unsigned)SAFETY_SAMPLE_COUNT, RECHARGE_TARGET_RH);
+            break;
+        case StopReason::RECHARGE_MAX_TIME:
+            snprintf(buf, size, "%lu h at temperature. Cool down and safety check passed.",
+                     (unsigned long)(RECHARGE_MAX_MS / 3600000UL));
+            break;
+        default:
+            if (size > 0) buf[0] = '\0';
+            break;
+    }
+}
+
+static void appendLine(char* buf, size_t size, size_t &used, const char* line) {
+    if (line == nullptr || line[0] == '\0' || used >= size) return;
+    const int written = snprintf(buf + used, size - used, "%s%s", used > 0 ? "\n" : "", line);
+    if (written > 0) used += (size_t)written;
+    if (used >= size) used = size - 1;
+}
+
+void formatStopMessage(char* buf, size_t size, StopReason reason, SystemMode mode,
+                       const char* detail, bool afterCooldown) {
+    if (buf == nullptr || size == 0) return;
+    buf[0] = '\0';
+    size_t used = 0;
+    const StopText& text = stopText(reason);
+    char fallback[128];
+    if (detail == nullptr) {
+        defaultStopDetail(reason, fallback, sizeof(fallback));
+        detail = fallback;
+    }
+    appendLine(buf, size, used, text.title);
+    appendLine(buf, size, used, detail);
+    appendLine(buf, size, used, text.action);
+    if (afterCooldown) {
+        appendLine(buf, size, used, "The chamber was cooled first, with the valves venting outside.");
+    }
+    char codeLine[48];
+    if (mode == SystemMode::IDLE) {
+        snprintf(codeLine, sizeof(codeLine), "Code S%02u", (unsigned)reason);
+    } else {
+        snprintf(codeLine, sizeof(codeLine), "%s ended. Code S%02u",
+                 systemModeName(mode), (unsigned)reason);
+    }
+    appendLine(buf, size, used, codeLine);
+}
+
+/* One line per stop: "Stop: S09 VALVE_SUSPECT mode=Recharge | <message>".
+   Analysis scripts look for lines starting "Stop:". */
+static void printStopLine(StopReason reason, SystemMode mode, const char* message) {
+    Serial.printf("Stop: S%02u %s mode=%s", (unsigned)reason, stopReasonName(reason),
+                  systemModeName(mode));
+    if (message != nullptr) {
+        Serial.print(F(" | "));
+        for (const char* c = message; *c != '\0'; ++c) {
+            if (*c == '\n') Serial.print(F(" | "));
+            else Serial.print(*c);
+        }
+    }
+    Serial.println();
+}
+
 StateMachine::StateMachine()
     : _mode(SystemMode::IDLE)
     , _pendingCmd(Command::NONE)
@@ -98,6 +251,7 @@ StateMachine::StateMachine()
     , _purgeEpoch(0)
     , _rechargeGoodCycles(0)
 {
+    _stopText[0] = '\0';
     config.dryerOnMinutes = 3;
     config.dryerOffHours = 1;
     config.dryerTargetRH = 20;
@@ -154,6 +308,10 @@ bool StateMachine::handleCommand() {
         stopWith(StopReason::USER);
         return true;
     }
+    if (cmd == Command::STOP_REMOTE) {
+        stopWith(StopReason::USER_REMOTE);
+        return true;
+    }
     if (_mode != SystemMode::IDLE || startBlockReason(cmd) != nullptr) return true;
     if (cmd == Command::START_PURGE) enterMode(SystemMode::PURGE);
     else if (cmd == Command::START_DRYER_MANUAL) {
@@ -202,9 +360,9 @@ void StateMachine::update() {
                 return;
             }
             if (_mode == SystemMode::RECHARGE && _valveEnergized && _chamberReachedTarget) {
-                rechargeFailureCooldown(StopReason::SENSOR_LOST);
+                rechargeFailureCooldown(sensorLossReason());
             } else {
-                stopWith(StopReason::SENSOR_LOST);
+                stopWith(sensorLossReason());
             }
         } else {
             if (_sensorLost) {
@@ -232,9 +390,12 @@ void StateMachine::update() {
 }
 
 const char* StateMachine::startBlockReason(Command cmd) const {
-    if (cmd == Command::STOP || cmd == Command::NONE) return "Invalid start.";
+    if (cmd == Command::STOP || cmd == Command::STOP_REMOTE || cmd == Command::NONE) {
+        return "Invalid start.";
+    }
     if (_mode != SystemMode::IDLE) return "A cycle is already running.";
-    if (thermalExceeded()) {
+    float fahrenheit = NAN;
+    if (thermalFault(fahrenheit) != StopReason::NONE) {
         return "Temperature is above the safety limit.\nLet the system cool and try again.";
     }
     switch (cmd) {
@@ -261,7 +422,8 @@ const char* StateMachine::startBlockReason(Command cmd) const {
 
 bool StateMachine::command(Command cmd) {
     if (cmd == Command::NONE) return false;
-    if (cmd != Command::STOP && startBlockReason(cmd) != nullptr) {
+    const bool stop = cmd == Command::STOP || cmd == Command::STOP_REMOTE;
+    if (!stop && startBlockReason(cmd) != nullptr) {
         Serial.println(startBlockReason(cmd));
         return false;
     }
@@ -347,10 +509,8 @@ void StateMachine::enterMode(SystemMode newMode) {
     Serial.println(systemModeName(newMode));
 }
 
-void StateMachine::stopWith(StopReason reason) {
+void StateMachine::stopWith(StopReason reason, const char* detail, bool afterCooldown) {
     SystemMode oldMode = _mode;
-    bool toOk = toEngineReady();
-    bool chamberOk = chamberReady();
     _mode = SystemMode::IDLE;
     _pumpOn = false;
     _heaterOn = false;
@@ -360,11 +520,17 @@ void StateMachine::stopWith(StopReason reason) {
     setValve(false);
     _inGracePeriod = false;
     _pendingCmd = Command::NONE;
+    _sensorLost = false;
     resetSaturation();
     relay.allOff();
     _appliedPump = false;
     _appliedHeater = false;
     _appliedFan = false;
+    if (oldMode == SystemMode::IDLE) {
+        // Nothing was running (for example Stop while idle). Outputs are forced
+        // off above. No new message, and a message still waiting is kept.
+        return;
+    }
     _stopReason = reason;
     if (oldMode == SystemMode::RECHARGE) {
         _rechargeEndEpoch = systemClockEpoch();
@@ -379,46 +545,15 @@ void StateMachine::stopWith(StopReason reason) {
         _valveNoCurrentCount = 0;
         Serial.println(F("Recharge ended - valve closed loop"));
     }
-    if (reason == StopReason::USER || oldMode == SystemMode::IDLE) {
-        _stopMessage = nullptr;
-    } else if (reason == StopReason::SATURATED) {
-        _stopMessage = "Desiccant saturated.\nRecharge cycle recommended.";
-    } else if (reason == StopReason::SENSOR_LOST) {
-        if (!sensorPacketFresh()) {
-            _stopMessage = "Sensor node not responding.\nNo data received.\nCycle stopped.";
-        } else if (oldMode == SystemMode::DRYER_AUTO && toOk) {
-            _stopMessage = "From-Engine sensor lost.\nAuto Cycle stopped.";
-        } else if (oldMode == SystemMode::DRYER_AUTO) {
-            _stopMessage = "To-Engine sensor lost.\nAuto Cycle stopped.";
-        } else if (oldMode == SystemMode::RECHARGE && toOk && !chamberOk) {
-            _stopMessage = "Chamber thermistor lost.\nRecharge stopped.";
-        } else if (oldMode == SystemMode::RECHARGE) {
-            _stopMessage = "To-Engine sensor lost.\nRecharge stopped.";
-        } else {
-            _stopMessage = "To-Engine sensor lost.\nCycle stopped.";
-        }
-    } else if (reason == StopReason::RECHARGE_COMPLETE) {
-        _stopMessage = "Recharge complete.\nThree readings in a row were below 15%.";
-    } else if (reason == StopReason::RECHARGE_MAX_TIME) {
-        _stopMessage = "Recharge stopped.\n6 hours at temperature without three dry samples.\nCool down and safety check done.";
-    } else if (reason == StopReason::HEATUP_TIMEOUT) {
-        _stopMessage = "Chamber did not reach target temperature.\nHeater and pump are off.\nCheck the heater and thermistor.";
-    } else if (reason == StopReason::THERMAL) {
-        _stopMessage = "Thermal limit reached.\nHeater and pump are off.";
-    } else if (reason == StopReason::VALVE_SUSPECT) {
-        _stopMessage = "Valve position suspect.\nMoisture may be entering engine.\nPump stopped.";
-    } else if (reason == StopReason::VALVE_NO_CURRENT) {
-        _stopMessage = "Valve coil fault.\nNo current while energized.\nPump stopped.";
-    } else if (reason == StopReason::SAFETY_FAILED) {
-        _stopMessage = "Safety check failed.\nSample above 15%.\nValves closed.";
+    if (reason == StopReason::USER) {
+        _stopMessage = nullptr;  // The operator pressed Stop; nothing to explain.
     } else {
-        _stopMessage = "Cycle stopped.";
+        formatStopMessage(_stopText, sizeof(_stopText), reason, oldMode, detail, afterCooldown);
+        _stopMessage = _stopText;
     }
-    if (oldMode != SystemMode::IDLE) {
-        logger.logModeChange(oldMode, SystemMode::IDLE);
-        Serial.print(F("Stop: "));
-        Serial.println(_stopMessage != nullptr ? _stopMessage : "user");
-    }
+    logger.logModeChange(oldMode, SystemMode::IDLE);
+    printStopLine(reason, oldMode, _stopMessage);
+    logger.logStop((uint8_t)reason, stopReasonName(reason), oldMode, _stopMessage);
 }
 
 void StateMachine::updatePurge() {
@@ -569,7 +704,7 @@ void StateMachine::updateRecharge() {
                         _pumpOn = false;
                         break;
                     }
-                    rechargeFailureCooldown(StopReason::SENSOR_LOST);
+                    rechargeFailureCooldown(StopReason::FROM_ENGINE_LOST);
                     return;
                 }
                 if (!evaluateValveVerification()) return;
@@ -616,7 +751,7 @@ void StateMachine::updateRecharge() {
                     StopReason reason = _rechargeFailureReason;
                     _valveEnergized = false;
                     _rechargeEndEpoch = systemClockEpoch();
-                    stopWith(reason);
+                    stopWith(reason, nullptr, true);
                     return;
                 }
                 _safetyCheckCount = 0;
@@ -667,7 +802,10 @@ void StateMachine::updateRecharge() {
                     Serial.println(F("Safety sample above 15% - fail safe to idle"));
                     _valveEnergized = false;
                     _rechargeEndEpoch = systemClockEpoch();
-                    stopWith(StopReason::SAFETY_FAILED);
+                    char detail[96];
+                    snprintf(detail, sizeof(detail), "To-Engine read %.1f%% after the cool down. It must be %.0f%% or less.",
+                             sensors.toEngineRH, RECHARGE_TARGET_RH);
+                    stopWith(StopReason::SAFETY_FAILED, detail);
                     return;
                 }
                 setRechargePhase(RechargePhase::SAFETY_PULSE);
@@ -690,42 +828,77 @@ uint32_t StateMachine::purgeAgeMs() const {
     return (uint32_t)(now - _purgeEpoch) * 1000UL;
 }
 
-bool StateMachine::thermalExceeded() const {
-    if (chamberReady() &&
-        celsiusToFahrenheit(sensors.chamberTemp) > (float)THERMAL_CHAMBER_F) {
-        return true;
+/* Which software thermal limit is exceeded, if any. fahrenheit returns the
+   offending reading. Only fresh readings count; a stale one cannot trip or
+   clear the limit. */
+StopReason StateMachine::thermalFault(float &fahrenheit) const {
+    if (chamberReady()) {
+        fahrenheit = celsiusToFahrenheit(sensors.chamberTemp);
+        if (fahrenheit > (float)THERMAL_CHAMBER_F) return StopReason::THERMAL_CHAMBER;
     }
-    if (toEngineReady() &&
-        celsiusToFahrenheit(sensors.toEngineTemp) > (float)THERMAL_SENSOR_F) {
-        return true;
+    if (toEngineReady()) {
+        fahrenheit = celsiusToFahrenheit(sensors.toEngineTemp);
+        if (fahrenheit > (float)THERMAL_SENSOR_F) return StopReason::THERMAL_TO_PROBE;
     }
-    if (fromEngineReady() &&
-        celsiusToFahrenheit(sensors.fromEngineTemp) > (float)THERMAL_SENSOR_F) {
-        return true;
+    if (fromEngineReady()) {
+        fahrenheit = celsiusToFahrenheit(sensors.fromEngineTemp);
+        if (fahrenheit > (float)THERMAL_SENSOR_F) return StopReason::THERMAL_FROM_PROBE;
     }
-    return false;
+    return StopReason::NONE;
 }
 
 void StateMachine::checkThermal() {
-    if (!thermalExceeded()) {
+    float fahrenheit = NAN;
+    const StopReason fault = thermalFault(fahrenheit);
+    if (fault == StopReason::NONE) {
         _thermalLatched = false;
         return;
     }
     if (_thermalLatched) return;
     _thermalLatched = true;
+    const bool chamber = fault == StopReason::THERMAL_CHAMBER;
+    char detail[96];
+    snprintf(detail, sizeof(detail), "%s read %.0f F, limit %d F. All outputs off.",
+             chamber ? "Chamber" : (fault == StopReason::THERMAL_TO_PROBE ? "To-Engine probe"
+                                                                         : "From-Engine probe"),
+             fahrenheit, chamber ? THERMAL_CHAMBER_F : THERMAL_SENSOR_F);
     Serial.println(F("Thermal limit reached"));
     if (_mode != SystemMode::IDLE) {
-        stopWith(StopReason::THERMAL);
-    } else {
-        _pumpOn = false;
-        _heaterOn = false;
-        _fanOn = false;
-        relay.allOff();
-        _appliedPump = false;
-        _appliedHeater = false;
-        _appliedFan = false;
-        _stopMessage = "Thermal limit reached.\nHeater and pump are off.";
+        stopWith(fault, detail);
+        return;
     }
+    // Idle: nothing is running, but force everything off and tell the operator.
+    _pumpOn = false;
+    _heaterOn = false;
+    _fanOn = false;
+    relay.allOff();
+    _appliedPump = false;
+    _appliedHeater = false;
+    _appliedFan = false;
+    _stopReason = fault;
+    formatStopMessage(_stopText, sizeof(_stopText), fault, SystemMode::IDLE, detail, false);
+    _stopMessage = _stopText;
+    printStopLine(fault, SystemMode::IDLE, _stopMessage);
+    logger.logStop((uint8_t)fault, stopReasonName(fault), SystemMode::IDLE, _stopMessage);
+}
+
+/* Which required sensor is missing, for the stop code. A silent sensor node
+   beats a single missing probe because it explains all of them. */
+StopReason StateMachine::sensorLossReason() const {
+    if (!sensorPacketFresh()) return StopReason::SENSOR_NODE_SILENT;
+    if (!toEngineReady()) return StopReason::TO_ENGINE_LOST;
+    switch (_mode) {
+        case SystemMode::DRYER_AUTO:
+            if (!fromEngineReady()) return StopReason::FROM_ENGINE_LOST;
+            break;
+        case SystemMode::RECHARGE:
+            if (!chamberReady() && !chamberRetryPending()) return StopReason::CHAMBER_LOST;
+            break;
+        default:
+            break;
+    }
+    // Sensors came back in the same pass; name the sensor this mode depends on most.
+    return _mode == SystemMode::RECHARGE ? StopReason::CHAMBER_LOST : StopReason::TO_ENGINE_LOST;
 }
 
 void StateMachine::regulateHeater() {
@@ -919,7 +1092,10 @@ bool StateMachine::evaluateVentPressure() {
     // A single bad pulse is a safety shutdown (test: disconnected line).
     if (thisPulseBad) {
         Serial.println(F("Vent pressure fault - pulse did not rise 20,000 over ambient"));
-        stopWith(StopReason::VALVE_SUSPECT);
+        char detail[96];
+        snprintf(detail, sizeof(detail), "Pump pulse raised the vent pressure %ld counts. It needs %ld.",
+                 (long)peakStep, (long)VENT_PRESSURE_MIN_STEP);
+        stopWith(StopReason::VALVE_SUSPECT, detail);
         return false;
     }
 

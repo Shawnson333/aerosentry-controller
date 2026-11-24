@@ -2,6 +2,8 @@
 
 #include "ui.h"
 #include "relay.h"
+#include "logging.h"
+#include <time.h>
 
 static lv_obj_t* adminScreen = nullptr;
 static lv_obj_t* adminBody = nullptr;
@@ -132,7 +134,26 @@ void uiUpdateAdmin() {
         snprintf(pressureAvg, sizeof(pressureAvg), "avg n/a");
     }
 
-    char body[720];
+    // Last stops, newest first: "S09 VALVE_SUSPECT, Recharge, 11/24 14:02".
+    char stops[200] = "none since power-up";
+    StopEvent events[3];
+    const uint8_t eventCount = logger.recentStops(events, 3);
+    size_t used = 0;
+    for (uint8_t i = 0; i < eventCount && used < sizeof(stops); ++i) {
+        const time_t when = (time_t)events[i].epoch;
+        struct tm local = {};
+        localtime_r(&when, &local);
+        const int written = snprintf(stops + used, sizeof(stops) - used,
+                                     "%sS%02u %s, %s, %02d/%02d %02d:%02d",
+                                     i == 0 ? "" : "\n            ",
+                                     events[i].code, stopReasonName((StopReason)events[i].code),
+                                     systemModeName((SystemMode)events[i].mode),
+                                     local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min);
+        if (written < 0) break;
+        used += (size_t)written;
+    }
+
+    char body[1000];
     snprintf(body, sizeof(body),
              "To-Engine   %s   %s\n"
              "From-Engine %s   %s\n"
@@ -143,8 +164,8 @@ void uiUpdateAdmin() {
              "Vent avg    %s\n"
              "Pulses      good %u bad %u\n"
              "Last purge  %s\n"
-             "K1 aux 12V, K2 pump, K3 heat, K4 fan, K5/K6 valves, K7/K8 aux.",
+             "Last stops  %s",
              toRh, toF, fromRh, fromF, chamber, chipText, relays, pressure, pressureAvg,
-             stateMachine.ventGoodPulses(), stateMachine.ventBadPulses(), purge);
+             stateMachine.ventGoodPulses(), stateMachine.ventBadPulses(), purge, stops);
     lv_label_set_text(adminBody, body);
 }

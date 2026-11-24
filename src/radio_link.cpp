@@ -98,7 +98,7 @@ static void applyCommand(const LinkCommand &command) {
         case REMOTE_DRYER_MANUAL: mapped = Command::START_DRYER_MANUAL; break;
         case REMOTE_DRYER_AUTO: mapped = Command::START_DRYER_AUTO; break;
         case REMOTE_RECHARGE: mapped = Command::START_RECHARGE; break;
-        case REMOTE_STOP: mapped = Command::STOP; break;
+        case REMOTE_STOP: mapped = Command::STOP_REMOTE; break;
         default: break;
     }
 
@@ -110,9 +110,9 @@ static void applyCommand(const LinkCommand &command) {
     if (mapped == Command::NONE) {
         return;
     }
-    if (mapped == Command::STOP) {
+    if (mapped == Command::STOP_REMOTE) {
         const bool wasRunning = stateMachine.isRunning();
-        stateMachine.command(Command::STOP);
+        stateMachine.command(Command::STOP_REMOTE);
         ack.accepted = 1;
         copyText(ack.text, sizeof(ack.text), wasRunning ? "Stop accepted." : "Already idle. Outputs off.");
     } else if (!relay.isReady()) {
