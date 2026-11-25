@@ -855,3 +855,6 @@ in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17
   in 30 s segments, vent check judged per segment, new phase PURGE = 7), then seals. A passed safety check also lets the
   dryer cycle that asked for the recharge resume, even after the 6 h limit. Planned test: an unlimited-time recharge
   from saturation to measure the real drying time (checklist 8.6). Sim 195 checks pass; not flashed, not bench tested.
+- 2026-11-25 (user): purge segments lengthened from 30 s to 5 min for steady airflow (3 segments in 15 min). Because a long
+  segment would hide a moving valve until its end, the running pressure is watched from 15 s in: below reference + 10,000
+  for 10 s is S09, at or above reference + 500,000 is S20. Sim 201 checks pass; not flashed, not bench tested.

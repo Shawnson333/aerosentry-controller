@@ -196,6 +196,7 @@ private:
     uint32_t _cooldownWindow;       // Which 10 min cool down window the pulse logic is in
     bool _cooldownPulseRun;         // This window's cool down pulse is running
     uint32_t _purgeStartMs;         // When the post-safety vent purge began
+    uint32_t _purgeLowSinceMs;      // When the running purge pressure first fell below the minimum step (0 = fine)
     uint8_t _pulseCount;            // Recharge pulses completed, used for the first-pulse flush
     uint8_t _valveNoCurrentCount;   // Consecutive low shunt readings while energized
     uint32_t _valveCommandMs;       // millis() when the valve was energized

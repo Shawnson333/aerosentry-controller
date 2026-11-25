@@ -294,7 +294,7 @@ static void testNormalRecharge() {
     EXPECT(logHas("safety pulse"), "safety pulses were not judged");
     EXPECT(logHas("Cool down done after"), "cool down end not logged");
     EXPECT(logHas("vent purge before sealing"), "no vent purge after the safety check");
-    EXPECT(logCount("purge pulse") >= 15, "only %u purge segments judged", (unsigned)logCount("purge pulse"));
+    EXPECT(logCount("purge pulse") >= 3, "only %u purge segments judged", (unsigned)logCount("purge pulse"));
     EXPECT(logHas("Vent purge done"), "purge end not logged");
     std::string m = takeMessage();
     EXPECT(m.find("Code S16") != std::string::npos, "message lacks Code S16: %s", m.c_str());
@@ -391,14 +391,31 @@ static void testValveSticksInCooldown() {
 }
 
 static void testValveSticksInPurge() {
-    reset("Valve sticks during the post-safety vent purge: the next segment catches it, stop S09");
+    reset("Valve sticks in the middle of a purge segment: caught within seconds, stop S09");
     Plant p; p.model = dryingModel;
     EXPECT(startRecharge(p), "recharge start refused");
     EXPECT(runUntil(p, [] { return logHas("vent purge before sealing"); }, 8UL * 3600000UL), "never reached the purge");
+    runFor(p, 60000);  // well into the first 5 min segment
+    const uint32_t stuckAt = hostNowMs;
     p.valveStuck = true;
     EXPECT(runUntil(p, idle, 3600000UL), "never stopped");
+    EXPECT(hostNowMs - stuckAt < 60000UL, "a stuck valve took %lu s to catch (the segment is 300 s)",
+           (unsigned long)((hostNowMs - stuckAt) / 1000UL));
     EXPECT(logHas("Stop: S09 VALVE_SUSPECT"), "no S09 stop");
     EXPECT(!logHas("Stop: S16"), "a failed purge was reported as complete");
+}
+
+static void testPurgeLineBlocked() {
+    reset("Vent line gets blocked in the middle of a purge segment: stop S20 within seconds");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logHas("vent purge before sealing"); }, 8UL * 3600000UL), "never reached the purge");
+    runFor(p, 60000);
+    const uint32_t blockedAt = hostNowMs;
+    p.flowStep = 800000;
+    EXPECT(runUntil(p, idle, 3600000UL), "never stopped");
+    EXPECT(hostNowMs - blockedAt < 60000UL, "a blocked line took %lu s to catch", (unsigned long)((hostNowMs - blockedAt) / 1000UL));
+    EXPECT(logHas("Stop: S20 VENT_BLOCKED"), "no S20 stop");
 }
 
 static void testToEngineLostInCooldown() {
@@ -889,6 +906,7 @@ int main(int argc, char** argv) {
     testValveStuck();
     testValveSticksInCooldown();
     testValveSticksInPurge();
+    testPurgeLineBlocked();
     testToEngineLostInCooldown();
     testHeaterDeadAtStart();
     testHeaterDiesWhileHolding();

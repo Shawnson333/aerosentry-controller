@@ -54,8 +54,14 @@ and tube length exist, calibrate `VENT_PRESSURE_MIN_STEP` (now 10,000) from real
 
 ## 2026-11-25 later (committed, NOT flashed; the board runs the older build)
 - Target 240 F (hold 235-240). A passed cool down safety check is a pass even after the 6 h limit (S16; S17 retired).
-- NEW after the safety check passes: 15 min vent purge outside, valves open, pump in 30 s segments, vent check on; then
-  seal, and a dryer cycle that asked for the recharge resumes (also after the time limit). Sim 195 checks pass.
+- NEW after the safety check passes: 15 min vent purge outside, valves open, pump in three 5 min segments of steady air, pressure watched live (S09 if it falls, S20 if blocked); then
+  seal, and a dryer cycle that asked for the recharge resumes (also after the time limit). Sim 201 checks pass (43 scenarios).
 - TODO test: unlimited recharge (no 6 h limit) from a saturated chamber to see the true time to dry (checklist 8.6).
 - Observed: after the recharge the closed-loop dryer showed From-Engine above 30% vs To-Engine 6-7%; likely condensate in
   the chamber-to-valve line. Check that the purge fixes it (checklist 8.5).
+
+## Picking up on another computer
+`git clone https://github.com/Shawnson333/aerosentry-controller.git`, `git checkout v1-beta` (main is identical), install
+PlatformIO. Nothing needed lives outside git except: the serial captures (`captures/recharge*.txt`, git-ignored) and Claude's
+local memory. To flash from there, the boards must be plugged in (check the COM ports: controller = Waveshare, node =
+USB serial number F8:5B:1B:BF:3F:EC). Host sim needs `pio pkg install -g --tool "platformio/toolchain-gccmingw32"`.

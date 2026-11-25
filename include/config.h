@@ -118,9 +118,13 @@
 
 /* After the cool down safety check passes (2026-11-25): vent outside for this long to clear
    condensate left in the line between the chamber and the valve, then seal for drying. Run as
-   segments, each judged by the vent pressure check against a fresh pump-off reference. */
+   long segments (steady air), each started against a fresh pump-off reference. While a segment
+   runs the pressure must stay at least VENT_PRESSURE_MIN_STEP above that reference (a valve that
+   moves stops the cycle within about 25 s) and below VENT_PRESSURE_BLOCKED_STEP. */
 #define RECHARGE_PURGE_MS           900000UL   // 15 min
-#define RECHARGE_PURGE_SEGMENT_MS   30000UL    // pump on this long per segment
+#define RECHARGE_PURGE_SEGMENT_MS   300000UL   // pump on this long per segment (3 segments)
+#define RECHARGE_PURGE_FLOW_CHECK_AFTER_MS 15000UL // start watching the running pressure this long into a segment
+#define RECHARGE_PURGE_LOW_MS       10000UL    // pressure below the minimum step this long: stop S09
 #define RECHARGE_MAX_MS         21600000UL // Recharge max 6 hours, counted from the moment the chamber first reaches target
 #define RECHARGE_HEATUP_MAX_MS  3600000UL  // Backstop: chamber must reach target within 1 hour of start, or stop (S14)
 /* Heater response check (user idea, 2026-11-24). While the heater is

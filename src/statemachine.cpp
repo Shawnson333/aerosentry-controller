@@ -261,6 +261,7 @@ StateMachine::StateMachine()
     , _cooldownWindow(UINT32_MAX)
     , _cooldownPulseRun(false)
     , _purgeStartMs(0)
+    , _purgeLowSinceMs(0)
     , _valveNoCurrentCount(0)
     , _valveCommandMs(0)
     , _valveCheckMs(0)
@@ -960,9 +961,36 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                     return;
                 }
                 if (!beginVentPulse()) break;
+                _purgeLowSinceMs = 0;
             }
             _pumpOn = true;
             trackVentPulse();
+            // A long segment is watched while it runs: the pressure must stay above the
+            // reference by the minimum step, so a valve that moves is caught in seconds.
+            if (phaseElapsed() >= RECHARGE_PURGE_FLOW_CHECK_AFTER_MS && pressureReady()) {
+                const int32_t liveStep = sensors.ventPressureRaw - _ventRef;
+                char detail[96];
+                if (liveStep >= VENT_PRESSURE_BLOCKED_STEP) {
+                    Serial.printf("Vent purge: pressure rose %ld, line blocked\n", (long)liveStep);
+                    snprintf(detail, sizeof(detail), "The purge raised the vent pressure %ld counts. More than %ld means the line is blocked.",
+                             (long)liveStep, (long)VENT_PRESSURE_BLOCKED_STEP);
+                    stopWith(StopReason::VENT_BLOCKED, detail);
+                    return;
+                }
+                if (liveStep < VENT_PRESSURE_MIN_STEP) {
+                    if (_purgeLowSinceMs == 0) {
+                        _purgeLowSinceMs = millis();
+                    } else if (millis() - _purgeLowSinceMs >= RECHARGE_PURGE_LOW_MS) {
+                        Serial.printf("Vent purge: pressure fell to %ld over the reference - valve suspect\n", (long)liveStep);
+                        snprintf(detail, sizeof(detail), "The purge pressure fell to %ld counts over the reference. It needs %ld.",
+                                 (long)liveStep, (long)VENT_PRESSURE_MIN_STEP);
+                        stopWith(StopReason::VALVE_SUSPECT, detail);
+                        return;
+                    }
+                } else {
+                    _purgeLowSinceMs = 0;
+                }
+            }
             if (phaseElapsed() < RECHARGE_PURGE_SEGMENT_MS) break;
             _pumpOn = false;
             const VentResult vent = judgeVentPulse("purge");
