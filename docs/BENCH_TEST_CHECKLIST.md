@@ -1,7 +1,7 @@
 # Bench test checklist (v1.0.0-beta.1)
 
 Everything below is built and passes the host simulation (`python tools/host_test.py`, 37 scenarios,
-141 checks). Flashed 2026-11-24 (controller and sensor node, both read back and verified); sections 0 and 1
+169 checks). Flashed 2026-11-24 (controller and sensor node, both read back and verified); sections 0 and 1
 are done, the rest is open. Work top to bottom. Record each result (date,
 pass/fail, log file) in the Result column or in `docs/PROJECT_NOTES.md`.
 
