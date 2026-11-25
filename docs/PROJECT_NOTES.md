@@ -831,3 +831,11 @@ in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17
   the soft silicone vent line. Signal is a plateau, not noise, so the minimum step was lowered 20,000 to 10,000 (user decision).
   Known no-flow signature is about 2,000 and idle noise under 1,000. User also put the old stiff tubing back; the next run
   shows whether the rise returns to 70,000+. **Unverified:** sim was not re-run after this constant change.
+- **2026-11-25 cause found by the user (low vent pressure rise): the vent tube.** The line used in the first tests was a
+  random bench piece about 2 ft long with a full 360-degree memory coil; the replacement was cut at 1 ft and ran straight
+  to the floor. A 2 ft silicone piece restored the rise to about 60,000 at the first pulse, drifting down to about 47,000.
+  The pressure rise at the sensor depends strongly on the tube length, coil and material (back pressure against the pump's
+  flow). **For the enclosure: fix the final vent tube length and routing, then calibrate** (record the steps over a few
+  recharges, set `VENT_PRESSURE_MIN_STEP` at about a third of the typical rise and keep it well above the ~2,000 wrong-valve
+  signature and the ~1,000 idle noise). Any later change of tube length or routing needs a re-check. Also note the slow
+  60,000 to 47,000 drift as the line warms.

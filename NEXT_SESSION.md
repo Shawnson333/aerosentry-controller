@@ -45,3 +45,9 @@ Branch `v1-beta` (main is the same commit). Read this, then `README.md`, `docs/B
 - Say plainly what is unverified. Every distinct error state gets its own message and code.
 - Keep replies short. Write edit scripts with backslashes to a file, not a heredoc (backslashes collapse), and
   check that every replace actually matched (my Admin crash came from a replace that silently did nothing).
+
+## Cause of the weak vent pressure (user, 2026-11-25)
+The vent tube. Earlier tests used a ~2 ft coiled bench piece; the swap was a straight 1 ft piece. A 2 ft silicone piece
+gave ~60,000 at the first pulse (drifting to ~47,000). The rise depends on tube length and coil. When the final enclosure
+and tube length exist, calibrate `VENT_PRESSURE_MIN_STEP` (now 10,000) from real recharges. Overnight capture:
+`captures/recharge3-20261125-0101.txt` (git-ignored).
