@@ -199,6 +199,29 @@
 #define CASE_FAN_CHIP_ON_C      65.0f
 #define CASE_FAN_CHIP_OFF_C     55.0f
 
+/* --- SHT40 probe heater policy (2026-11-24, see include/probe_care.h) ---
+   The node's hard limits (under 60 C probe, 10% duty, 10 s between pulses)
+   are in common/probe_heat.h. Each pulse is 200 mW for 1 s. */
+#define SENSOR_NODE_MAC                 {0xF8, 0x5B, 0x1B, 0xBF, 0x3F, 0xEC}  // heat requests go here (unicast)
+#define PROBE_DRY_PULSES                2          // a normal burn-off: 2 pulses, 10 s apart
+#define PROBE_DRY_PULSES_LONG           3          // safety samples and the post-recharge series
+#define PROBE_REQUEST_RETRY_MS          2000UL     // resend an unacknowledged heat request
+#define PROBE_REQUEST_TRIES             4
+#define RECHARGE_PROBE_DRY_AT_MS        15000UL    // R1: dry To-Engine this far into each 60 s pulse wait
+#define SAFETY_PREP_MAX_MS              240000UL   // R1: wait at most this long for the probe before a safety pulse
+#define SAFETY_PREP_DRIED_MS            180000UL   // ...a burn-off this recent counts
+#define AUTO_PROBE_WAIT_MAX_MS          60000UL    // R1: an auto dryer decision waits this long at most for the probe
+#define SAT_CONFIRM_DRIED_MS            600000UL   // R1: a saturation stop needs a burn-off this recent...
+#define SAT_CONFIRM_MAX_MS              120000UL   // ...or stops anyway after waiting this long for one
+#define PROBE_CONDENSE_SPREAD_C         3.0f       // R2: within 3 C (5.4 F) of the dew point = condensation zone (about 85% RH)
+#define PROBE_ZONE_INTERVAL_MS          600000UL   // R2: dry every 10 min in the zone
+#define PROBE_WET_RH                    95.0f      // R3: a reading this high starts a wet history
+#define PROBE_WET_HOLD_MS               129600000UL // R3: wet history lasts 36 h (bench: readings ran high 24-36 h after a recharge)
+#define PROBE_WET_INTERVAL_MS           900000UL   // R3: dry every 15 min during a wet history
+#define PROBE_POST_RECHARGE_MS          1800000UL  // R3: for 30 min after a recharge...
+#define PROBE_POST_RECHARGE_INTERVAL_MS 180000UL   // ...dry every 3 min (3 pulses)
+#define PROBE_DISPLAY_TAU_MS            20000UL    // R5: user screens smooth humidity over about 20 s
+
 /* --- Relay test (Admin > Relay test), bench diagnostic for the K1 question --- */
 #define RELAY_TEST_PULSE_MS     2000UL  // One pin is driven this long, then everything returns to normal
 

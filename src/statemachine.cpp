@@ -10,6 +10,7 @@
 #include "logging.h"
 #include "system_clock.h"
 #include "run_state.h"
+#include "probe_care.h"
 
 static float celsiusToFahrenheit(float celsius) {
     return celsius * 9.0f / 5.0f + 32.0f;
@@ -264,6 +265,9 @@ StateMachine::StateMachine()
     , _heaterCheckLowF(0.0f)
     , _heaterOnMs(0)
     , _heaterCheckLastMs(0)
+    , _probeDryAsked(false)
+    , _saturationConfirming(false)
+    , _saturationConfirmMs(0)
 {
     _stopText[0] = '\0';
     config.dryerOnMinutes = 3;
@@ -592,6 +596,7 @@ void StateMachine::stopWith(StopReason reason, const char* detail, bool afterCoo
         _rechargeResumeMode = SystemMode::IDLE;
         _valveNoCurrentCount = 0;
         Serial.println(F("Recharge ended - valve closed loop"));
+        probeCareRechargeEnded();
     }
     if (reason == StopReason::USER) {
         _stopMessage = nullptr;  // The operator pressed Stop; nothing to explain.
@@ -639,7 +644,7 @@ void StateMachine::updateAuto() {
             // Do not trust a reading until the pump has run long enough to bring engine
             // air to the sensor. The first packets after the pump starts are old air.
             if (phaseElapsed() >= AUTO_SAMPLE_RUN_MS && fromEngineSampleReady() &&
-                sensors.fromEngineRH <= target) {
+                !probeBusy(Probe::FROM_ENGINE) && sensors.fromEngineRH <= target) {
                 _autoQuickCycles = 0;
                 setAutoPhase(AutoPhase::WAITING);
             } else if (phaseElapsed() >= AUTO_MAX_RUN_MS) {
@@ -659,6 +664,9 @@ void StateMachine::updateAuto() {
             _pumpOn = phaseElapsed() < AUTO_SAMPLE_RUN_MS;
             if (phaseElapsed() < AUTO_SAMPLE_RUN_MS + AUTO_SAMPLE_SETTLE_MS) break;
             if (!fromEngineSampleReady()) break;
+            // R1: the probe was dried at the start of this sample; wait for it to recover.
+            if (probeBusy(Probe::FROM_ENGINE) &&
+                phaseElapsed() < AUTO_SAMPLE_RUN_MS + AUTO_SAMPLE_SETTLE_MS + AUTO_PROBE_WAIT_MAX_MS) break;
             if (sensors.fromEngineRH <= target) {
                 _autoQuickCycles = 0;
                 setAutoPhase(AutoPhase::WAITING);
@@ -686,6 +694,8 @@ void StateMachine::updateAuto() {
             _pumpOn = false;
             if (phaseElapsed() < AUTO_SAMPLE_SETTLE_MS) break;
             if (!fromEngineSampleReady()) break;
+            // R1: the probe was dried at the start of this sample; wait for it to recover.
+            if (probeBusy(Probe::FROM_ENGINE) && phaseElapsed() < AUTO_SAMPLE_SETTLE_MS + AUTO_PROBE_WAIT_MAX_MS) break;
             if (sensors.fromEngineRH > target) setAutoPhase(AutoPhase::DRYING);
             else setAutoPhase(AutoPhase::WAITING);
             break;
@@ -732,7 +742,8 @@ void StateMachine::updateRecharge(bool sensorsOk) {
 
     const bool cooling = _rechargePhase == RechargePhase::COOLDOWN ||
                          _rechargePhase == RechargePhase::SAFETY_PULSE ||
-                         _rechargePhase == RechargePhase::SAFETY_WAIT;
+                         _rechargePhase == RechargePhase::SAFETY_WAIT ||
+                         _rechargePhase == RechargePhase::SAFETY_PREP;
     if (cooling) {
         _heaterOn = false;
         _heaterCheckArmed = false;
@@ -786,16 +797,22 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                 break;
             }
             if (_pulseCount < 255) _pulseCount++;
-            if (toEngineSampleReady()) {
+            // R1: the probe was dried during the wait. A reading taken while it is
+            // still heating or recovering is not counted either way.
+            const bool probeHeld = probeBusy(Probe::TO_ENGINE);
+            if (toEngineSampleReady() && !probeHeld) {
                 if (sensors.toEngineRH <= RECHARGE_TARGET_RH) {
                     if (_rechargeGoodCycles < 255) _rechargeGoodCycles++;
                 } else {
                     _rechargeGoodCycles = 0;
                 }
             }
-            Serial.printf("Recharge sample %.1f%% good %u/%u\n",
+            Serial.printf("Recharge sample %.1f%% good %u/%u%s\n",
                           toEngineSampleReady() ? sensors.toEngineRH : -1.0f,
-                          _rechargeGoodCycles, RECHARGE_GOOD_CYCLES);
+                          _rechargeGoodCycles, RECHARGE_GOOD_CYCLES,
+                          probeHeld ? " (probe still drying, not counted)"
+                                    : (probeDriedWithin(Probe::TO_ENGINE, RECHARGE_PULSE_WAIT_MS * 2)
+                                           ? " (dried probe)" : " (probe not dried)"));
             if (_rechargeGoodCycles >= RECHARGE_GOOD_CYCLES) {
                 setRechargePhase(RechargePhase::COOLDOWN);
                 return;
@@ -805,6 +822,13 @@ void StateMachine::updateRecharge(bool sensorsOk) {
         }
         case RechargePhase::PULSE_WAIT:
             _pumpOn = false;
+            // R1: dry the To-Engine probe during the wait so the next pulse-end
+            // sample reads the exhaust, not water left on the chip. The pump is off
+            // here, so the probe has cooled from the hot exhaust (heater limit 60 C).
+            if (!_probeDryAsked && phaseElapsed() >= RECHARGE_PROBE_DRY_AT_MS) {
+                _probeDryAsked = true;
+                probeDry(Probe::TO_ENGINE, PROBE_DRY_PULSES, "before a recharge sample");
+            }
             if (phaseElapsed() >= RECHARGE_PULSE_WAIT_MS) {
                 setRechargePhase(RechargePhase::PULSE_ON);
             }
@@ -834,10 +858,31 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                     return;
                 }
                 _safetyCheckCount = 0;
-                setRechargePhase(RechargePhase::SAFETY_PULSE);
+                setRechargePhase(RechargePhase::SAFETY_PREP);
                 break;
             }
             runCooldownPulse(cooldownMs);
+            break;
+        }
+        case RechargePhase::SAFETY_PREP: {
+            // R1: the safety sample decides the cycle, and the probe has just spent
+            // hours in saturated exhaust. Dry it first. Water only reads high, so if
+            // the node refuses (probe too hot) the sample is still taken.
+            _heaterOn = false;
+            _pumpOn = false;
+            if (!_probeDryAsked) {
+                _probeDryAsked = true;
+                probeDry(Probe::TO_ENGINE, PROBE_DRY_PULSES_LONG, "before a safety sample");
+                break;
+            }
+            const bool ready = probeDriedWithin(Probe::TO_ENGINE, SAFETY_PREP_DRIED_MS) ||
+                               (!probeBusy(Probe::TO_ENGINE) && probeRefused(Probe::TO_ENGINE));
+            if (ready || phaseElapsed() >= SAFETY_PREP_MAX_MS) {
+                if (!probeDriedWithin(Probe::TO_ENGINE, SAFETY_PREP_DRIED_MS)) {
+                    Serial.println(F("Safety prep: To-Engine probe not dried, sample taken anyway"));
+                }
+                setRechargePhase(RechargePhase::SAFETY_PULSE);
+            }
             break;
         }
         case RechargePhase::SAFETY_PULSE: {
@@ -877,6 +922,7 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                             _rechargeTriggeredByCycle = false;
                             _rechargeResumeMode = SystemMode::IDLE;
                             Serial.println(F("Recharge complete - resuming previous cycle"));
+                            probeCareRechargeEnded();
                             logger.logStop((uint8_t)StopReason::RECHARGE_COMPLETE,
                                            stopReasonName(StopReason::RECHARGE_COMPLETE),
                                            SystemMode::RECHARGE, nullptr);
@@ -887,7 +933,9 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                         return;
                     }
                 } else {
-                    Serial.println(F("Safety sample above 15% - fail safe to idle"));
+                    Serial.printf("Safety sample above 15%% - fail safe to idle (%s)\n",
+                                  probeDriedWithin(Probe::TO_ENGINE, SAFETY_PREP_DRIED_MS + SAFETY_SAMPLE_INTERVAL_MS)
+                                      ? "dried probe" : "probe not dried");
                     _valveEnergized = false;
                     _rechargeEndEpoch = systemClockEpoch();
                     char detail[96];
@@ -896,7 +944,7 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                     stopWith(StopReason::SAFETY_FAILED, detail);
                     return;
                 }
-                setRechargePhase(RechargePhase::SAFETY_PULSE);
+                setRechargePhase(RechargePhase::SAFETY_PREP);
             }
             break;
     }
@@ -1010,11 +1058,12 @@ StopReason StateMachine::thermalFault(float &fahrenheit) const {
         fahrenheit = celsiusToFahrenheit(sensors.chamberTemp);
         if (fahrenheit > (float)THERMAL_CHAMBER_F) return StopReason::THERMAL_CHAMBER;
     }
-    if (toEngineReady()) {
+    // A probe that is heating or recovering reads its own heated die, not the air.
+    if (toEngineReady() && !probeBusy(Probe::TO_ENGINE)) {
         fahrenheit = celsiusToFahrenheit(sensors.toEngineTemp);
         if (fahrenheit > (float)THERMAL_SENSOR_F) return StopReason::THERMAL_TO_PROBE;
     }
-    if (fromEngineReady()) {
+    if (fromEngineReady() && !probeBusy(Probe::FROM_ENGINE)) {
         fahrenheit = celsiusToFahrenheit(sensors.fromEngineTemp);
         if (fahrenheit > (float)THERMAL_SENSOR_F) return StopReason::THERMAL_FROM_PROBE;
     }
@@ -1128,6 +1177,7 @@ void StateMachine::rechargeFailureCooldown(StopReason reason) {
     resetVentPulse();
     Serial.printf("Recharge failure %s - cool down, valves stay open\n", stopReasonName(reason));
     switch (_rechargePhase) {
+        case RechargePhase::SAFETY_PREP:
         case RechargePhase::SAFETY_PULSE:
         case RechargePhase::SAFETY_WAIT:
             _valveEnergized = false;
@@ -1338,6 +1388,9 @@ void StateMachine::checkSaturation() {
         resetSaturation();
         return;
     }
+    // A heating or recovering probe reads low (heated die), so neither start,
+    // reset nor finish the timer on it: hold.
+    if (probeBusy(Probe::TO_ENGINE)) return;
     if (!_pumpOn || !toEngineReady() || sensors.toEngineRH <= SAT_LIMIT_RH) {
         resetSaturation();
         return;
@@ -1350,6 +1403,18 @@ void StateMachine::checkSaturation() {
         return;
     }
     if (now - _saturationMark >= SAT_HOLD_MS) {
+        // R1: a wet probe reads high, so confirm on a freshly dried probe first.
+        if (!probeDriedWithin(Probe::TO_ENGINE, SAT_CONFIRM_DRIED_MS)) {
+            if (!_saturationConfirming) {
+                _saturationConfirming = true;
+                _saturationConfirmMs = now;
+                Serial.println(F("To-Engine above 40% for 30 s - drying the probe to confirm"));
+                probeDry(Probe::TO_ENGINE, PROBE_DRY_PULSES, "confirm saturation");
+                return;
+            }
+            if (now - _saturationConfirmMs < SAT_CONFIRM_MAX_MS && !probeRefused(Probe::TO_ENGINE)) return;
+            Serial.println(F("Saturation confirm: probe could not be dried in time, stopping on the reading"));
+        }
         const char* detail = nullptr;
         if (_mode == SystemMode::DRYER_MANUAL || _mode == SystemMode::DRYER_AUTO) {
             if (_autoRechargeArmed) {
@@ -1374,6 +1439,7 @@ void StateMachine::checkSaturation() {
 void StateMachine::resetSaturation() {
     _saturationTiming = false;
     _saturationMark = 0;
+    _saturationConfirming = false;
 }
 
 void StateMachine::applyOutputs() {
@@ -1446,6 +1512,10 @@ void StateMachine::setAutoPhase(AutoPhase phase) {
     _autoPhase = phase;
     _phaseStartTime = millis();
     resetSaturation();
+    if (phase == AutoPhase::SAMPLE_RUN || phase == AutoPhase::QUICK_SAMPLE) {
+        // R1: dry the From-Engine probe while the sample pump pulls engine air.
+        probeDry(Probe::FROM_ENGINE, PROBE_DRY_PULSES, "before an auto dryer sample");
+    }
     Serial.print(F("Auto phase "));
     Serial.println((int)phase);
 }
@@ -1453,6 +1523,7 @@ void StateMachine::setAutoPhase(AutoPhase phase) {
 void StateMachine::setRechargePhase(RechargePhase phase) {
     _rechargePhase = phase;
     _phaseStartTime = millis();
+    _probeDryAsked = false;
     if (phase == RechargePhase::COOLDOWN) {
         _cooldownWindow = UINT32_MAX;  // the first cool down pulse starts at once
         _cooldownPulseRun = false;
@@ -1572,6 +1643,9 @@ const char* StateMachine::statusText() const {
                     formatDuration(remain, sizeof(remain),
                                    phaseRemaining(SAFETY_PULSE_MS));
                     snprintf(buf, sizeof(buf), "Safety pulse %s", remain);
+                    return buf;
+                case RechargePhase::SAFETY_PREP:
+                    snprintf(buf, sizeof(buf), "Drying To-Engine probe for the safety sample");
                     return buf;
                 case RechargePhase::SAFETY_WAIT:
                     formatDuration(remain, sizeof(remain),

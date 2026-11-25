@@ -9,6 +9,8 @@
 #include "system_clock.h"
 #include "run_state.h"
 #include "statemachine.h"
+#include "probe_heat.h"
+#include <vector>
 
 uint32_t hostNowMs = 0;
 HostSerial Serial;
@@ -102,7 +104,14 @@ size_t hostLastSendLen = 0;
 esp_err_t esp_now_init() { return ESP_OK; }
 esp_err_t esp_now_register_recv_cb(esp_now_recv_cb_t cb) { hostEspNowReceive = cb; return ESP_OK; }
 esp_err_t esp_now_add_peer(const esp_now_peer_info_t *) { return ESP_OK; }
+std::vector<ProbeHeatRequest> hostHeatRequests;
+
 esp_err_t esp_now_send(const uint8_t *mac, const uint8_t *data, size_t len) {
+    if (len == sizeof(ProbeHeatRequest) && data[0] == AEROSENTRY_HEAT_MAGIC) {
+        ProbeHeatRequest request;
+        memcpy(&request, data, sizeof(request));
+        hostHeatRequests.push_back(request);
+    }
     hostEspNowSends++;
     memcpy(hostLastSendMac, mac, 6);
     hostLastSendLen = len < sizeof(hostLastSend) ? len : sizeof(hostLastSend);

@@ -131,7 +131,8 @@ public:
 private:
     enum class ManualPhase { ON, OFF };
     enum class AutoPhase { DRYING, COOLDOWN, QUICK_SAMPLE, WAITING, SAMPLE_RUN, SAMPLE_SETTLE };
-    enum class RechargePhase { HEATING, PULSE_ON, PULSE_WAIT, COOLDOWN, SAFETY_PULSE, SAFETY_WAIT };
+    // SAFETY_PREP (6, 2026-11-24) dries the To-Engine probe before each safety pulse.
+    enum class RechargePhase { HEATING, PULSE_ON, PULSE_WAIT, COOLDOWN, SAFETY_PULSE, SAFETY_WAIT, SAFETY_PREP };
 
     SystemMode _mode;
     Command _pendingCmd;
@@ -203,6 +204,9 @@ private:
     float _heaterCheckLowF;         // Lowest chamber F since the heater last proved it works
     uint32_t _heaterOnMs;           // Heater-ON time since then
     uint32_t _heaterCheckLastMs;
+    bool _probeDryAsked;            // R1 burn-off already requested in this phase
+    bool _saturationConfirming;     // saturation timer ran out; drying the probe to confirm
+    uint32_t _saturationConfirmMs;
 
     bool handleCommand();
     void enterMode(SystemMode newMode);

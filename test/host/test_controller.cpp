@@ -27,6 +27,10 @@
 #include "radio_link.h"
 #include "link_packet.h"
 #include "sensor_packet.h"
+#include "probe_heat.h"
+#include "probe_care.h"
+
+extern std::vector<ProbeHeatRequest> hostHeatRequests;
 
 static const uint8_t SENSOR_MAC[6] = {0xF8, 0x5B, 0x1B, 0xBF, 0x3F, 0xEC};
 static const uint8_t BRIDGE_MAC[6] = {0x10, 0xBD, 0xA3, 0x5A, 0x7C, 0x94};
@@ -52,6 +56,13 @@ struct Plant {
     uint32_t lastPressurePacketMs = 0;
     uint32_t hotSince = 0;        // when the chamber first reached about 240 F
     std::function<void(Plant&)> model;  // per-test humidity model, called every step
+    // Sensor node heater, the same ProbeHeater code the node runs.
+    ProbeHeater toHeater, fromHeater;
+    uint8_t heatAck = 0;
+    float toDieRiseC = 0.0f, fromDieRiseC = 0.0f;  // heater warming of the die, decays
+    float heaterDieRiseC = 20.0f;                   // per pulse
+    int toWater = 0, fromWater = 0;                 // drops on the chip: each pulse burns one off
+    uint32_t toPulses = 0, fromPulses = 0;
 };
 
 static bool bit(uint8_t port, int b) { return (port >> b) & 1; }
@@ -61,20 +72,56 @@ static bool valvesRelay() {
     return bit(hostRelayPort0(), RELAY_BIT_VALVE_TO) && bit(hostRelayPort0(), RELAY_BIT_VALVE_FROM);
 }
 
+/* What the SHT40 reports: water on the chip reads at least 99%; a heated die
+   reads warmer and drier than the air. */
+static float reportedRH(float trueRH, int water, float dieRiseC) {
+    if (water > 0) return fmaxf(trueRH, 99.0f);
+    return trueRH * expf(-0.06f * dieRiseC);
+}
+
 static void sendPacket(Plant& p) {
+    const uint32_t now = hostNowMs;
+    // Node: take heat requests (each seq once), as nodes/heltec-sensor does.
+    for (const ProbeHeatRequest& request : hostHeatRequests) {
+        if (request.seq == p.heatAck) continue;
+        p.heatAck = request.seq;
+        (request.probe == HEAT_PROBE_FROM ? p.fromHeater : p.toHeater).request(request.pulses, now);
+    }
+    hostHeatRequests.clear();
     SensorPacket packet = {};
     packet.version = AEROSENTRY_PACKET_VERSION;
     packet.sequence = p.seq++;
     if (p.toValid) {
         packet.flags |= SENSOR_FLAG_TO_VALID;
-        packet.toEngineRhCenti = (int16_t)lroundf(p.toRH * 100.0f);
-        packet.toEngineTempCenti = (int16_t)lroundf(p.toC * 100.0f);
+        const float dieC = p.toC + p.toDieRiseC;
+        packet.toEngineRhCenti = (int16_t)lroundf(reportedRH(p.toRH, p.toWater, p.toDieRiseC) * 100.0f);
+        packet.toEngineTempCenti = (int16_t)lroundf(dieC * 100.0f);
+        p.toHeater.observe(dieC, now);
     }
     if (p.fromValid) {
         packet.flags |= SENSOR_FLAG_FROM_VALID;
-        packet.fromEngineRhCenti = (int16_t)lroundf(p.fromRH * 100.0f);
-        packet.fromEngineTempCenti = (int16_t)lroundf(p.fromC * 100.0f);
+        const float dieC = p.fromC + p.fromDieRiseC;
+        packet.fromEngineRhCenti = (int16_t)lroundf(reportedRH(p.fromRH, p.fromWater, p.fromDieRiseC) * 100.0f);
+        packet.fromEngineTempCenti = (int16_t)lroundf(dieC * 100.0f);
+        p.fromHeater.observe(dieC, now);
     }
+    if (p.toValid && p.toHeater.pulseDue(now, false)) {
+        p.toHeater.pulseDone(now);
+        p.toDieRiseC += p.heaterDieRiseC;
+        if (p.toWater > 0) p.toWater--;
+        p.toPulses++;
+    }
+    if (p.fromValid && p.fromHeater.pulseDue(now, p.toHeater.pulsing())) {
+        p.fromHeater.pulseDone(now);
+        p.fromDieRiseC += p.heaterDieRiseC;
+        if (p.fromWater > 0) p.fromWater--;
+        p.fromPulses++;
+    }
+    packet.toStatus = p.toHeater.status();
+    packet.fromStatus = p.fromHeater.status();
+    packet.toDriedAgeS = p.toHeater.driedAgeS(now);
+    packet.fromDriedAgeS = p.fromHeater.driedAgeS(now);
+    packet.heatAck = p.heatAck;
     if (p.chamberValid) {
         packet.flags |= SENSOR_FLAG_CHAMBER_VALID;
         packet.chamberTempCenti = (int16_t)lroundf((p.chamberF - 32.0f) * 5.0f / 9.0f * 100.0f);
@@ -96,7 +143,7 @@ static int checks = 0;
 static const char* currentTest = "";
 static bool invariantReported = false;
 
-#define EXPECT(cond, ...) do { checks++; if (!(cond)) { failures++; \
+#define EXPECT(cond, ...) do { if (skipping) break; checks++; if (!(cond)) { failures++; \
     printf("  FAIL [%s] line %d: ", currentTest, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 static void invariant(bool ok, const char* what) {
@@ -107,12 +154,23 @@ static void invariant(bool ok, const char* what) {
            (unsigned long)hostNowMs, what, systemModeName(stateMachine.mode()), hostRelayPort0());
 }
 
+static const char* onlyFilter = nullptr;  // run only scenarios whose title contains this
+static bool skipping = false;
+
 static void step(Plant& p, uint32_t dt) {
+    if (skipping) {  // a filtered-out scenario: let time pass, do nothing else
+        hostNowMs += dt;
+        if (stateMachine.mode() != SystemMode::IDLE) stateMachine.command(Command::STOP);
+        return;
+    }
     // Physics.
     const float seconds = dt / 1000.0f;
     if (heaterRelay() && !p.heaterBroken) p.chamberF += p.heaterRateFps * seconds;
     const float k = pumpRelay() ? 6.0e-4f : 2.78e-4f;
     p.chamberF -= k * (p.chamberF - p.ambientF) * seconds;
+    const float dieDecay = expf(-(float)dt / 3000.0f);  // SHT40 die cools with a few-second time constant
+    p.toDieRiseC *= dieDecay;
+    p.fromDieRiseC *= dieDecay;
     if (p.model) p.model(p);
     // Radio.
     if (p.nodeOn && hostNowMs >= p.nextPacketMs) {
@@ -121,6 +179,7 @@ static void step(Plant& p, uint32_t dt) {
     }
     // One pass of loop().
     sensorsUpdate();
+    probeCareUpdate(stateMachine.mode());  // same order as loop() in main.cpp
     relay.update();
     radioLinkUpdate();
     stateMachine.update();
@@ -194,14 +253,17 @@ static std::string takeMessage() {
 
 static void reset(const char* name) {
     currentTest = name;
+    skipping = onlyFilter != nullptr && strstr(name, onlyFilter) == nullptr;
     invariantReported = false;
     hostNowMs = 1000;
     Serial.log.clear();
     stateMachine = StateMachine();
+    hostHeatRequests.clear();
+    probeCareBegin();
     relay.begin();
     sensorsBegin();
     stateMachine.begin();
-    printf("%s\n", name);
+    if (!skipping) printf("%s\n", name);
 }
 
 /* Humidity model for a recharge that dries: To-Engine falls 1 point a minute
@@ -662,7 +724,11 @@ static void testRestartReport() {
 }
 
 int main(int argc, char** argv) {
-    if (argc > 1 && strcmp(argv[1], "-v") == 0) Serial.echo = true;
+    setvbuf(stdout, nullptr, _IONBF, 0);  // show progress even if a scenario hangs
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "-v") == 0) Serial.echo = true;
+        else if (strcmp(argv[i], "--only") == 0 && i + 1 < argc) onlyFilter = argv[++i];
+    }
     testNormalRecharge();
     testNodeSilentMidPulse();
     testShortDropoutRecovers();

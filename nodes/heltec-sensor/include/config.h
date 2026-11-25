@@ -43,6 +43,11 @@
    gap. Each packet is sent this many times, SEND_REPEAT_GAP_MS apart, with
    the same sequence number; the controller keeps the first copy. */
 #define SEND_REPEAT_COUNT   2
+
+/* SHT40 heater requests (ProbeHeatRequest, common/probe_heat.h) are taken
+   only from the controller. Its MAC is the Waveshare's (USB serial number on
+   COM4). The heater limits themselves live in probe_heat.h. */
+#define CONTROLLER_MAC      {0x94, 0xA9, 0x90, 0xDF, 0xBB, 0x54}
 #define SEND_REPEAT_GAP_MS  30UL
 
 #endif

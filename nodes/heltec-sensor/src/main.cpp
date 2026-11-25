@@ -10,6 +10,7 @@
 #include <HX711.h>
 #include "config.h"
 #include "sensor_packet.h"
+#include "probe_heat.h"
 
 static TwoWire toBus = TwoWire(0);
 static TwoWire fromBus = TwoWire(1);
@@ -23,6 +24,18 @@ static int chamberSpread = -1;
 static int valveMillivolts = -1;
 static uint8_t chamberStable = 0;
 static uint8_t chamberFaults = 0;
+
+/* SHT40 heater (2026-11-24). The controller asks for a burn-off; the
+   ProbeHeater scheduler enforces the limits and tracks the cool-down. */
+static ProbeHeater toHeater;
+static ProbeHeater fromHeater;
+static uint8_t toAddress = 0;    // SHT40 address found on each bus
+static uint8_t fromAddress = 0;
+static portMUX_TYPE heatMux = portMUX_INITIALIZER_UNLOCKED;
+static ProbeHeatRequest pendingHeat = {};
+static volatile bool heatPending = false;
+static uint8_t heatAck = 0;
+static const uint8_t controllerMac[6] = CONTROLLER_MAC;
 
 static uint8_t crc8(const uint8_t *data, int length) {
     uint8_t crc = 0xFF;
@@ -42,13 +55,19 @@ static int16_t toCenti(float value) {
     return (int16_t)lroundf(scaled);
 }
 
-static bool readSht40(TwoWire &bus, float &humidity, float &tempC) {
+/* One SHT40 command and its 6-byte answer. command 0xFD is a normal
+   high-precision measurement (about 10 ms). command 0x39 turns the heater on
+   at 200 mW for 1 s and measures just before it switches off; the result is
+   the heated die, not the air, and is only logged. */
+static bool sht40Command(TwoWire &bus, uint8_t command, uint32_t waitMs, uint8_t &found,
+                         float &humidity, float &tempC) {
     const uint8_t addresses[] = {0x44, 0x45};
     for (uint8_t address : addresses) {
+        if (found != 0 && address != found) continue;
         bus.beginTransmission(address);
-        bus.write(0xFD);  // High-precision measurement, heater off.
+        bus.write(command);
         if (bus.endTransmission() != 0) continue;
-        delay(10);
+        delay(waitMs);
         if (bus.requestFrom(address, (uint8_t)6) != 6) continue;
         uint8_t data[6];
         for (int i = 0; i < 6; ++i) data[i] = bus.read();
@@ -59,10 +78,57 @@ static bool readSht40(TwoWire &bus, float &humidity, float &tempC) {
         tempC = -45.0f + 175.0f * ((float)rawTemp / 65535.0f);
         humidity = -6.0f + 125.0f * ((float)rawHumidity / 65535.0f);
         humidity = constrain(humidity, 0.0f, 100.0f);
+        found = address;
         return humidity >= 0.0f && humidity <= 100.0f &&
                tempC >= -40.0f && tempC <= 125.0f;
     }
     return false;
+}
+
+static bool readSht40(TwoWire &bus, uint8_t &found, float &humidity, float &tempC) {
+    return sht40Command(bus, 0xFD, 10, found, humidity, tempC);
+}
+
+/* Fire one heater pulse if the scheduler says it is due. Blocks about 1.1 s. */
+static void runHeater(ProbeHeater &heater, TwoWire &bus, uint8_t &found, const char *name,
+                      bool otherPulsing) {
+    if (!heater.pulseDue(millis(), otherPulsing)) return;
+    float hotRh = 0.0f, hotC = 0.0f;
+    const bool ok = sht40Command(bus, 0x39, HEATER_PULSE_MS + 100UL, found, hotRh, hotC);
+    heater.pulseDone(millis());
+    Serial.printf("Heater pulse %s: %s, die %.1f C %.1f%% at the end of the pulse\n",
+                  name, ok ? "done" : "NO ANSWER", hotC, hotRh);
+}
+
+static void onEspNowReceive(const uint8_t *mac, const uint8_t *data, int len) {
+    if (mac == nullptr || data == nullptr || len != (int)sizeof(ProbeHeatRequest)) return;
+    if (memcmp(mac, controllerMac, 6) != 0) return;  // only the controller may heat the probes
+    ProbeHeatRequest request;
+    memcpy(&request, data, sizeof(request));
+    if (request.magic != AEROSENTRY_HEAT_MAGIC || request.seq == 0) return;
+    portENTER_CRITICAL(&heatMux);
+    pendingHeat = request;
+    heatPending = true;
+    portEXIT_CRITICAL(&heatMux);
+}
+
+static void takeHeatRequest() {
+    ProbeHeatRequest request = {};
+    bool have = false;
+    portENTER_CRITICAL(&heatMux);
+    if (heatPending) {
+        request = pendingHeat;
+        heatPending = false;
+        have = true;
+    }
+    portEXIT_CRITICAL(&heatMux);
+    if (!have || request.seq == heatAck) return;  // repeats of a request already taken
+    heatAck = request.seq;
+    ProbeHeater &heater = request.probe == HEAT_PROBE_FROM ? fromHeater : toHeater;
+    const bool taken = heater.request(request.pulses, millis());
+    Serial.printf("Heat request %u: %s probe, %u pulses, %s\n", request.seq,
+                  request.probe == HEAT_PROBE_FROM ? "From-Engine" : "To-Engine", request.pulses,
+                  taken ? "taken" : "refused (duty limit)");
 }
 
 static bool readChamber(float &tempC) {
@@ -160,7 +226,8 @@ static bool radioBegin() {
     for (int i = 0; i < 6; ++i) peer.peer_addr[i] = 0xFF;
     peer.channel = AEROSENTRY_ESPNOW_CHANNEL;
     peer.encrypt = false;
-    return esp_now_add_peer(&peer) == ESP_OK;
+    if (esp_now_add_peer(&peer) != ESP_OK) return false;
+    return esp_now_register_recv_cb(onEspNowReceive) == ESP_OK;
 }
 
 void setup() {
@@ -197,19 +264,32 @@ void loop() {
     packet.version = AEROSENTRY_PACKET_VERSION;
     packet.sequence = sequenceNumber++;
 
+    takeHeatRequest();
+
     float toHumidity = 0.0f;
     float fromHumidity = 0.0f;
     float tempC = 0.0f;
-    if (readSht40(toBus, toHumidity, tempC)) {
+    if (readSht40(toBus, toAddress, toHumidity, tempC)) {
         packet.flags |= SENSOR_FLAG_TO_VALID;
         packet.toEngineRhCenti = toCenti(toHumidity);
         packet.toEngineTempCenti = toCenti(tempC);
+        toHeater.observe(tempC, millis());
     }
-    if (readSht40(fromBus, fromHumidity, tempC)) {
+    if (readSht40(fromBus, fromAddress, fromHumidity, tempC)) {
         packet.flags |= SENSOR_FLAG_FROM_VALID;
         packet.fromEngineRhCenti = toCenti(fromHumidity);
         packet.fromEngineTempCenti = toCenti(tempC);
+        fromHeater.observe(tempC, millis());
     }
+    // At most one heater pulse per pass: To-Engine first, then From-Engine.
+    runHeater(toHeater, toBus, toAddress, "To-Engine", false);
+    runHeater(fromHeater, fromBus, fromAddress, "From-Engine", toHeater.pulsing());
+    const uint32_t now = millis();
+    packet.toStatus = toHeater.status();
+    packet.fromStatus = fromHeater.status();
+    packet.toDriedAgeS = toHeater.driedAgeS(now);
+    packet.fromDriedAgeS = fromHeater.driedAgeS(now);
+    packet.heatAck = heatAck;
 
     if (CHAMBER_DIVIDER_INSTALLED && readChamber(tempC)) {
         chamberFaults = 0;
@@ -241,8 +321,9 @@ void loop() {
             if (esp_now_send(broadcast, (uint8_t *)&packet, sizeof(packet)) == ESP_OK) sent++;
         }
     }
-    Serial.printf("%lu ms seq %lu flags 0x%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d valveMv %d pressRaw %ld pressMiss %lu stable %u faults %u sent %d\n",
+    Serial.printf("%lu ms seq %lu flags 0x%02X heat %02X/%02X toRH %.2f fromRH %.2f chamberC %.1f mV %d spread %d valveMv %d pressRaw %ld pressMiss %lu stable %u faults %u sent %d\n",
                   (unsigned long)millis(), (unsigned long)packet.sequence, packet.flags,
+                  packet.toStatus, packet.fromStatus,
                   (packet.flags & SENSOR_FLAG_TO_VALID) ? toHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_FROM_VALID) ? fromHumidity : -1.0f,
                   (packet.flags & SENSOR_FLAG_CHAMBER_VALID) ? tempC : -1.0f,

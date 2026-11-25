@@ -16,6 +16,7 @@
 #include "lvgl_v8_port.h"
 #include "radio_link.h"
 #include "run_state.h"
+#include "probe_care.h"
 
 static bool lvglReady = false;
 static uint32_t loopMaxMs = 0;  // Slowest loop() pass since boot, for the watchdog margin
@@ -85,6 +86,7 @@ void setup() {
 
     systemClockBegin();
     const SystemMode interrupted = runStateBegin();
+    probeCareBegin();
     stateMachine.begin();
     if (interrupted != SystemMode::IDLE || runStateUnexpectedReset()) {
         // Shown by the first loop() pass like any other stop message. A watchdog,
@@ -111,6 +113,7 @@ void setup() {
 void loop() {
     const uint32_t loopStart = millis();
     sensorsUpdate();
+    probeCareUpdate(stateMachine.mode());  // SHT40 drying rules and display smoothing
     relay.update();  // ends an Admin relay test pulse on time
     radioLinkUpdate();
     stateMachine.update();
@@ -122,8 +125,11 @@ void loop() {
             systemClockFormat(dateTime, sizeof(dateTime));
             uiUpdateDateTime(dateTime);
             uiUpdateStatus(stateMachine.statusText());
-            uiUpdateSensors(sensors.toEngineRH, sensors.fromEngineRH,
-                            toEngineReady(), fromEngineReady());
+            // R5: the user screen shows smoothed values from clean readings only.
+            float toShown = NAN, fromShown = NAN;
+            const bool toShownOk = probeDisplayRH(Probe::TO_ENGINE, toShown);
+            const bool fromShownOk = probeDisplayRH(Probe::FROM_ENGINE, fromShown);
+            uiUpdateSensors(toShown, fromShown, toShownOk, fromShownOk);
             uiUpdateOutputs(stateMachine.pumpOn(), stateMachine.heaterOn(),
                             stateMachine.fanOn(), stateMachine.valveOpen(),
                             stateMachine.chipTempC());

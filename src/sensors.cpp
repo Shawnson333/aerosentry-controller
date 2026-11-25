@@ -179,6 +179,11 @@ bool sensorsUpdate() {
     sensors.fromValid = (packet.flags & SENSOR_FLAG_FROM_VALID) != 0;
     sensors.chamberValid = (packet.flags & SENSOR_FLAG_CHAMBER_VALID) != 0;
     sensors.valveAdcMillivolts = packet.valveAdcMillivolts;
+    sensors.toStatus = packet.toStatus;
+    sensors.fromStatus = packet.fromStatus;
+    sensors.toDriedAgeS = packet.toDriedAgeS;
+    sensors.fromDriedAgeS = packet.fromDriedAgeS;
+    sensors.heatAck = packet.heatAck;
     sensors.pressureValid = (packet.flags & SENSOR_FLAG_PRESSURE_VALID) != 0;
     if (sensors.pressureValid) {
         sensors.ventPressureRaw = packet.ventPressureRaw;  // keeps the last valid value
@@ -204,6 +209,9 @@ bool sensorsUpdate() {
     const uint32_t logTime = millis();
     Serial.printf("%lu ms ESP-NOW seq %lu flags 0x%02X",
                   (unsigned long)logTime, (unsigned long)packet.sequence, packet.flags);
+    if (packet.toStatus & 0x03 || packet.fromStatus & 0x03) {
+        Serial.printf(" heat %02X/%02X", packet.toStatus, packet.fromStatus);
+    }
     if (sensors.chamberValid) {
         Serial.printf(" chamber %.1fF", sensors.chamberTemp * 9.0f / 5.0f + 32.0f);
     } else if (chamberRetryPending()) {

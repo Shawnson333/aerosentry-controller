@@ -24,6 +24,7 @@ SOURCES = [
     "src/relay.cpp",
     "src/radio_link.cpp",
     "src/logging.cpp",
+    "src/probe_care.cpp",
     "test/host/fakes.cpp",
     "test/host/test_controller.cpp",
 ]

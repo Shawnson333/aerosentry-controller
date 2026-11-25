@@ -24,6 +24,11 @@ struct SensorReading {
     uint32_t fromTimestamp;    // millis() when the last valid From-Engine sample arrived
     uint32_t chamberTimestamp; // millis() when the last valid chamber sample arrived
     uint32_t pressureTimestamp; // millis() when the last valid vent pressure sample arrived
+    uint8_t toStatus;        // PROBE_STATUS_* (probe_heat.h) from the latest packet
+    uint8_t fromStatus;
+    uint16_t toDriedAgeS;    // seconds since the probe was last dried, as of the latest packet
+    uint16_t fromDriedAgeS;
+    uint8_t heatAck;         // last ProbeHeatRequest seq the node took
     bool toValid;
     bool fromValid;
     bool chamberValid;
