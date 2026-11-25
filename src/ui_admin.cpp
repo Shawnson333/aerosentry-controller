@@ -3,6 +3,7 @@
 #include "ui.h"
 #include "relay.h"
 #include "logging.h"
+#include "probe_care.h"
 #include <time.h>
 
 uint32_t mainLoopMaxMs();  // main.cpp
@@ -23,6 +24,16 @@ static void cbRelayTest(lv_event_t* e) {
     (void)e;
     adminVisible = false;
     uiShowRelayTest();
+}
+
+static void cbDryTo(lv_event_t* e) {
+    (void)e;
+    probeDry(Probe::TO_ENGINE, PROBE_DRY_PULSES, "admin button");
+}
+
+static void cbDryFrom(lv_event_t* e) {
+    (void)e;
+    probeDry(Probe::FROM_ENGINE, PROBE_DRY_PULSES, "admin button");
 }
 
 static void cbToggleDiag(lv_event_t* e) {
@@ -54,29 +65,26 @@ void uiShowAdmin() {
         lv_obj_set_style_text_color(adminBody, lv_color_hex(UI_TEXT_COLOR), 0);
         lv_obj_set_style_text_font(adminBody, &lv_font_montserrat_20, 0);
 
-        lv_obj_t* diagBtn = lv_btn_create(adminScreen);
-        lv_obj_set_size(diagBtn, 280, 60);
-        lv_obj_align(diagBtn, LV_ALIGN_BOTTOM_LEFT, 40, -24);
-        lv_obj_set_style_bg_color(diagBtn, lv_color_hex(UI_PANEL_COLOR), 0);
-        lv_obj_add_event_cb(diagBtn, cbToggleDiag, LV_EVENT_CLICKED, nullptr);
-        adminDiagBtnLabel = lv_label_create(diagBtn);
-        lv_label_set_text(adminDiagBtnLabel, "Hide main diag line");
-        lv_obj_center(adminDiagBtnLabel);
-        lv_obj_set_style_text_font(adminDiagBtnLabel, &lv_font_montserrat_20, 0);
-
-        lv_obj_t* relayBtn = lv_btn_create(adminScreen);
-        lv_obj_set_size(relayBtn, 180, 60);
-        lv_obj_align(relayBtn, LV_ALIGN_BOTTOM_MID, 20, -24);
-        lv_obj_set_style_bg_color(relayBtn, lv_color_hex(UI_PANEL_COLOR), 0);
-        lv_obj_add_event_cb(relayBtn, cbRelayTest, LV_EVENT_CLICKED, nullptr);
-        lv_obj_t* relayLabel = lv_label_create(relayBtn);
-        lv_label_set_text(relayLabel, "Relay test");
-        lv_obj_center(relayLabel);
-        lv_obj_set_style_text_font(relayLabel, &lv_font_montserrat_20, 0);
+        auto makeButton = [](const char* text, int x, int w, lv_event_cb_t cb, lv_obj_t** labelOut) {
+            lv_obj_t* btn = lv_btn_create(adminScreen);
+            lv_obj_set_size(btn, w, 60);
+            lv_obj_align(btn, LV_ALIGN_BOTTOM_LEFT, x, -24);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(UI_PANEL_COLOR), 0);
+            lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
+            lv_obj_t* label = lv_label_create(btn);
+            lv_label_set_text(label, text);
+            lv_obj_center(label);
+            lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
+            if (labelOut != nullptr) *labelOut = label;
+        };
+        makeButton("Hide main diag line", 10, 240, cbToggleDiag, &adminDiagBtnLabel);
+        makeButton("Relay test", 258, 130, cbRelayTest, nullptr);
+        makeButton("Dry To", 396, 120, cbDryTo, nullptr);
+        makeButton("Dry From", 524, 130, cbDryFrom, nullptr);
 
         lv_obj_t* back = lv_btn_create(adminScreen);
-        lv_obj_set_size(back, 180, 60);
-        lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -40, -24);
+        lv_obj_set_size(back, 120, 60);
+        lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -10, -24);
         lv_obj_set_style_bg_color(back, lv_color_hex(UI_ACCENT_COLOR), 0);
         lv_obj_add_event_cb(back, cbAdminBack, LV_EVENT_CLICKED, nullptr);
         lv_obj_t* backLabel = lv_label_create(back);
@@ -98,15 +106,13 @@ void uiUpdateAdmin() {
         if (valid) snprintf(buf, size, "%.0f%s", value, unit);
         else snprintf(buf, size, "--");
     };
-    char toRh[16], toF[16], fromRh[16], fromF[16], chamber[16];
-    reading(toRh, sizeof(toRh), toEngineReady(), sensors.toEngineRH, "%");
-    reading(toF, sizeof(toF), toEngineReady(),
-            sensors.toEngineTemp * 9.0f / 5.0f + 32.0f, "F");
-    reading(fromRh, sizeof(fromRh), fromEngineReady(), sensors.fromEngineRH, "%");
-    reading(fromF, sizeof(fromF), fromEngineReady(),
-            sensors.fromEngineTemp * 9.0f / 5.0f + 32.0f, "F");
+    char chamber[16];
     reading(chamber, sizeof(chamber), chamberReady(),
             sensors.chamberTemp * 9.0f / 5.0f + 32.0f, "F");
+    // Raw probe readings (not the smoothed user display) with heater state.
+    char toProbe[96], fromProbe[96];
+    probeStateText(Probe::TO_ENGINE, toProbe, sizeof(toProbe));
+    probeStateText(Probe::FROM_ENGINE, fromProbe, sizeof(fromProbe));
 
     // Commanded state, not a register read: reads at the relay address are
     // corrupted by the CH422G on this bus (see relay.cpp).
@@ -176,7 +182,7 @@ void uiUpdateAdmin() {
         used += (size_t)written;
     }
 
-    char body[1000];
+    char body[1200];
     snprintf(body, sizeof(body),
              "To-Engine   %s   %s\n"
              "From-Engine %s   %s\n"
@@ -189,7 +195,7 @@ void uiUpdateAdmin() {
              "Last purge  %s\n"
              "Last stops  %s\n"
              "Firmware    %s   Loop max %lu ms",
-             toRh, toF, fromRh, fromF, chamber, chipText, relays, pressure, pressureAvg,
+             toProbe, fromProbe, chamber, chipText, relays, pressure, pressureAvg,
              stateMachine.ventGoodPulses(), stateMachine.ventBadPulses(), purge, stops,
              FIRMWARE_VERSION, (unsigned long)mainLoopMaxMs());
     lv_label_set_text(adminBody, body);
