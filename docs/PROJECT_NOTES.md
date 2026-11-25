@@ -844,3 +844,10 @@ in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17
   half a degree from the S11 trip). Overnight run (captures/recharge3): 321 of 321 vent pulses good (44,000-78,000), ended S17
   after 6 h; To-Engine RH at pulse end fell 42.5% to 26.1% and was still falling about 1.6 points an hour; cool-down safety
   samples read about 13%. **Unverified:** whether 240 F changes the drying rate or the overshoot (sim not a measure of that).
+- 2026-11-25 (user decision): a passed cool down safety check is a pass even when the 6 h limit ended the hot phase. The cycle
+  now ends S16 RECHARGE_COMPLETE with a note ("The 6 h limit ended the hot phase, and the cool down safety check passed.").
+  S17 is no longer produced and stays reserved. A time-limited recharge still never resumes an earlier dryer cycle.
+  Sim 187 checks pass. Not flashed (a dryer test was running on the board).
+- Observed after the recharge (user, closed-loop dryer): To-Engine 6-7%, From-Engine spiked above 30% and fell to ~17%
+  after one full pump run. Probable cause (unverified): condensate left in the line between the chamber end and the valve
+  evaporating into the loop. Idea: a longer vent purge after a recharge. Not decided or built.

@@ -927,8 +927,12 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                         _valveEnergized = false;
                         _rechargeEndEpoch = systemClockEpoch();
                         if (_rechargeTimedOut) {
-                            Serial.println(F("Recharge timed out - cool down and safety check done"));
-                            stopWith(StopReason::RECHARGE_MAX_TIME);
+                            // User decision 2026-11-25: a passed cool down safety check is a pass,
+                            // even when the 6 h limit ended the hot phase. Hot readings stay high
+                            // and fall slowly, so the dry samples at temperature can be out of reach.
+                            Serial.println(F("Recharge hit the time limit, cool down safety check passed - complete"));
+                            stopWith(StopReason::RECHARGE_COMPLETE,
+                                     "The 6 h limit ended the hot phase, and the cool down safety check passed.");
                             return;
                         }
                         if (_rechargeTriggeredByCycle &&

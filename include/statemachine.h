@@ -60,7 +60,8 @@ enum class StopReason : uint8_t {
     HEATUP_TIMEOUT     = 14,
     SAFETY_FAILED      = 15,
     RECHARGE_COMPLETE  = 16,
-    RECHARGE_MAX_TIME  = 17,
+    RECHARGE_MAX_TIME  = 17,  // No longer produced (2026-11-25: a passed safety check after the 6 h limit is S16); code kept, never reuse
+    //
     CONTROLLER_RESTART = 18,  // Power loss during a cycle, or any watchdog / crash / brownout (shown at boot)
     HEATER_NO_RISE     = 19,  // Heater on for HEATER_RESPONSE_MS without the chamber rising
     VENT_BLOCKED       = 20,  // Pump pulse raised the vent pressure far too much: line blocked or valve closed

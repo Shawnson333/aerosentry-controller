@@ -528,13 +528,15 @@ static void testFailureDuringSafetyCheck() {
 }
 
 static void testMaxRunTime() {
-    reset("Beads never dry: 6 h limit, cool down, safety check, stop S17");
+    reset("Hot readings never reach the target: 6 h limit, cool down, safety check passes, ends S16");
     Plant p;
     p.model = [](Plant& q) { q.toRH = q.chamberF < 130.0f ? 10.0f : 50.0f; };
     EXPECT(startRecharge(p), "recharge start refused");
     EXPECT(runUntil(p, idle, 10UL * 3600000UL, 50), "never stopped");
     EXPECT(logHas("Recharge 6h max at temperature"), "no max-time latch");
-    EXPECT(logHas("Stop: S17 RECHARGE_MAX_TIME"), "no S17 stop");
+    EXPECT(logHas("Stop: S16 RECHARGE_COMPLETE"), "a passed safety check after the time limit was not S16");
+    EXPECT(!logHas("S17"), "S17 should no longer be produced");
+    EXPECT(logHas("time limit, cool down safety check passed"), "time-limit note missing");
 }
 
 static void testFlakyPressure() {
