@@ -184,8 +184,8 @@ void uiUpdateAdmin() {
 
     char body[1200];
     snprintf(body, sizeof(body),
-             "To-Engine   %s   %s\n"
-             "From-Engine %s   %s\n"
+             "To-Engine   %s\n"
+             "From-Engine %s\n"
              "Chamber     %s\n"
              "Chip        %s\n"
              "Relays      %s\n"
