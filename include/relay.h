@@ -69,15 +69,24 @@ public:
        0x04 polarity, 0x06 config (0 = output). */
     bool readPair(uint8_t reg, uint8_t &port0, uint8_t &port1);
 
+    /* True register pair despite the CH422G overlap (2026-11-24). The overlap
+       masks the FIRST byte of a read with 0x26 and the SECOND with 0xFD, by
+       position. Reading the pair twice, starting at port 0 and then at port 1
+       (the XL9535 pointer toggles within a pair), puts each port in both
+       positions; OR-ing the two reads gives every bit back. readbackTest()
+       checks that this recovers what was written. */
+    bool readPairTrue(uint8_t reg, uint8_t &port0, uint8_t &port1);
+
     /* List the 7-bit addresses that ACK on the shared I2C bus, runs joined:
        "0x20-0x27 0x30-0x3F 0x5D 0x68". Takes about 30 ms. */
     static void scanBus(char *out, size_t size);
 
     /* Read-back check (2026-11-24): write test patterns to the polarity
        register (it only changes how INPUT pins read, never the outputs) and
-       read them back. A mismatch means a second device answers at
-       XL9535_ADDR and corrupts reads. Restores polarity 0x00 0x00. Returns
-       true when every pattern read back exactly; report gets the details. */
+       read them back, plainly and with readPairTrue(). Restores polarity
+       0x00 0x00. Returns true when readPairTrue() recovered every pattern,
+       which proves the writes (including bit 0, K1) reach the XL9535 intact.
+       report shows both reads for each pattern. */
     bool readbackTest(char *report, size_t size);
 
 private:

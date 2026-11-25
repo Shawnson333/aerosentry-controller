@@ -628,8 +628,13 @@ static void testRelayBusOverlap() {
     Plant p;
     runFor(p, 2000);
     char report[120];
-    EXPECT(!relay.readbackTest(report, sizeof(report)), "read-back test passed with the overlap");
-    EXPECT(strstr(report, "wrote A5 5A read 24 58") != nullptr, "report: %s", report);
+    EXPECT(relay.readbackTest(report, sizeof(report)), "two-order read did not recover the writes: %s", report);
+    uint8_t t0 = 0, t1 = 0;
+    relay.testPulseStart(0, 0, RELAY_TEST_PULSE_MS);
+    EXPECT(relay.readPairTrue(0x02, t0, t1) && t0 == 0x01 && t1 == 0x00, "true output read %02X %02X", t0, t1);
+    EXPECT(relay.readPairTrue(0x00, t0, t1) && (t0 & 0x01), "true input does not show P0.0 high");
+    relay.allOff();
+    EXPECT(strstr(report, "wrote A5 5A read 24 58 recovered A5 5A") != nullptr, "report: %s", report);
     EXPECT(hostXl9535[4] == 0x00 && hostXl9535[5] == 0x00, "polarity not restored");
     // The driver never reads back, so K1 and the bits the CH422G clears stay as commanded.
     relay.aux12vOn();

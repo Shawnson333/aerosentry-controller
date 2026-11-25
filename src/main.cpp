@@ -63,10 +63,11 @@ void setup() {
     RelayDriver::scanBus(devices, sizeof(devices));
     Serial.printf("I2C devices: %s\n", devices);
     if (relay.isReady()) {
-        char readback[120];
+        char readback[200];
         const bool clean = relay.readbackTest(readback, sizeof(readback));
         Serial.printf("XL9535 readback test: %s -> %s\n", readback,
-                      clean ? "clean" : "MISMATCH: another device answers at the relay address");
+                      clean ? "writes intact (plain reads are masked by the CH422G)"
+                            : "MISMATCH: writes to the relay board are not landing as sent");
     }
 
     if (sensorsBegin()) {

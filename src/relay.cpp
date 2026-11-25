@@ -139,20 +139,32 @@ void RelayDriver::scanBus(char *out, size_t size) {
     if (used == 0) snprintf(out, size, "none");
 }
 
+bool RelayDriver::readPairTrue(uint8_t reg, uint8_t &port0, uint8_t &port1) {
+    uint8_t a0 = 0, a1 = 0, b1 = 0, b0 = 0;
+    const uint8_t base = (uint8_t)(reg & 0xFE);
+    if (!readPair(base, a0, a1)) return false;             // port 0 first, port 1 second
+    if (!readPair((uint8_t)(base | 0x01), b1, b0)) return false;  // port 1 first, port 0 second
+    port0 = (uint8_t)(a0 | b0);
+    port1 = (uint8_t)(a1 | b1);
+    return true;
+}
+
 bool RelayDriver::readbackTest(char *report, size_t size) {
     static const uint8_t patterns[3][2] = {{0xA5, 0x5A}, {0xFF, 0xFF}, {0x00, 0x00}};
     bool clean = true;
     size_t used = 0;
     if (report != nullptr && size > 0) report[0] = '\0';
     for (uint8_t i = 0; i < 3; ++i) {
-        uint8_t got0 = 0, got1 = 0;
+        uint8_t got0 = 0, got1 = 0, true0 = 0, true1 = 0;
         const bool wrote = writePairChecked(0x04, patterns[i][0], patterns[i][1]);
-        const bool read = readPair(0x04, got0, got1);
-        const bool match = wrote && read && got0 == patterns[i][0] && got1 == patterns[i][1];
+        const bool read = readPair(0x04, got0, got1) && readPairTrue(0x04, true0, true1);
+        const bool match = wrote && read && true0 == patterns[i][0] && true1 == patterns[i][1];
         if (!match) clean = false;
         if (report != nullptr && used < size) {
-            const int written = snprintf(report + used, size - used, "%swrote %02X %02X read %02X %02X",
-                                         i ? ", " : "", patterns[i][0], patterns[i][1], got0, got1);
+            const int written = snprintf(report + used, size - used,
+                                         "%swrote %02X %02X read %02X %02X recovered %02X %02X",
+                                         i ? ", " : "", patterns[i][0], patterns[i][1], got0, got1,
+                                         true0, true1);
             if (written > 0) used += (size_t)written;
         }
     }

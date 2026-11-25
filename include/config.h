@@ -110,7 +110,7 @@
    above SAT_LIMIT_RH for SAT_HOLD_MS. They do not end on a fixed timer. */
 
 #define AUTO_SAMPLE_INTERVAL_MS 3600000UL // Auto: 1 hour between samples
-#define AUTO_SAMPLE_RUN_MS      10000UL   // Auto: pump runs this long to bring engine air to the sensor before a sample
+#define AUTO_SAMPLE_RUN_MS      30000UL   // Auto: pump runs this long to pull a full breath of engine air to the sensor before a sample (user, 2026-11-24; was 10 s)
 #define AUTO_SAMPLE_SETTLE_MS   10000UL   // Auto: pause 10 s after the pump stops, then read. 30 s let the air mix with dry chamber air and read falsely low; the sensor is rated accurate at 6 s
 #define AUTO_MAX_RUN_MS         600000UL  // Auto: max continuous pump run 10 min
 #define AUTO_COOLDOWN_MS        600000UL  // Auto: cooldown between quick cycles 10 min

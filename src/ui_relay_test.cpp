@@ -168,18 +168,19 @@ void uiUpdateRelayTest() {
     if (!uiRelayTestVisible() || resultLabel == nullptr) return;
     uint8_t out0 = 0, out1 = 0, in0 = 0, in1 = 0, cfg0 = 0, cfg1 = 0, pol0 = 0, pol1 = 0;
     const bool ok = relay.isReady() &&
-                    relay.readPair(0x02, out0, out1) && relay.readPair(0x00, in0, in1) &&
-                    relay.readPair(0x06, cfg0, cfg1) && relay.readPair(0x04, pol0, pol1);
+                    relay.readPairTrue(0x02, out0, out1) && relay.readPairTrue(0x00, in0, in1) &&
+                    relay.readPairTrue(0x06, cfg0, cfg1) && relay.readPairTrue(0x04, pol0, pol1);
     char text[420];
     if (!ok) {
         snprintf(text, sizeof(text), "Relay board not answering at 0x%02X.", XL9535_ADDR);
     } else {
         snprintf(text, sizeof(text),
-                 "%s%s.  Commanded: P0 0x%02X  P1 0x%02X  (what the pins are told; writes are clean)\n"
-                 "Read-back, NOT reliable on this bus (CH422G answers here too):\n"
-                 "  output P0 0x%02X P1 0x%02X   input P0 0x%02X P1 0x%02X   config %02X %02X   polarity %02X %02X\n"
-                 "The result is the click and the relay LED. P0.0 clicks K1: K1 works.\n"
-                 "P0.0 driven but no click: board fault, or K1 is on another pin (try P1).",
+                 "%s%s.  Commanded: P0 0x%02X  P1 0x%02X\n"
+                 "Chip (two-order read, CH422G mask removed):\n"
+                 "  output P0 0x%02X P1 0x%02X   input (real pin level) P0 0x%02X P1 0x%02X\n"
+                 "  config %02X %02X (00 = outputs)   polarity %02X %02X\n"
+                 "P0.0 output 1 and input 1 but no click: the relay board's K1 channel is faulty.\n"
+                 "P0.0 output 1, input 0: something on the board holds the pin low.",
                  relay.testActive() ? "Driving " : (lastPin[0] ? "Last pulse " : "Idle. Tap a pin."),
                  lastPin, relay.commandedPort0(), relay.commandedPort1(),
                  out0, out1, in0, in1, cfg0, cfg1, pol0, pol1);
