@@ -16,7 +16,7 @@ Branch `v1-beta` (main is the same commit). Read this, then `README.md`, `docs/B
   check valves, tubing, pump, pressure tap.
 - New: each pulse is judged against the median of the pump-off readings from the 6 s before it. No steady reference =
   no pump (S21 after 2 min). Rise of 500,000+ = S20 VENT_BLOCKED (the user's finger over the tube gave 1.65 million).
-  Limit stays 20,000. Sim: 40 scenarios, 185 checks, 0 failures. The controller on COM4 still runs the OLD check;
+  Limit is now 10,000 (user decision 2026-11-25; wrong valve ~2,000, soft silicone vent line ~21,000, old stiff line 70,000+). Sim: 40 scenarios, 185 checks, 0 failures. The controller on COM4 still runs the OLD check;
   flash it only when the user says so.
 - The recharge capture is `captures/recharge-20261124-2358.txt` (local file, may be committed). Heater burn-offs
   during that run looked normal but were not reviewed in detail.

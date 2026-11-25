@@ -120,7 +120,7 @@ result is the click and the relay LED.
   heater-on time, from bench heat-up curves) are tested in the simulator only.
 - Vent check (2026-11-25): each pulse is judged against the median of the pump-off readings from the 6 s before it
   (no running average). Bench 2026-11-25 showed real rises of only 21,000-28,000 counts per pulse, against
-  70,000-130,000 in earlier runs, so flow is weak and the 20,000 limit has little margin. Cause not found yet
+  70,000-130,000 in earlier runs, so flow is weak and the old 20,000 limit had no margin (now 10,000). Cause not found yet
   (valves, tubing, pump or pressure tap are the places to look). A single high glitch reading would still pass
   the check (the peak of the pulse is used); not addressed.
 - The XL9535 keeps its outputs through an ESP32 reset (assumed; 4.1 shows how long the relays stay on).

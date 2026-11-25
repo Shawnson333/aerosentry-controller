@@ -176,13 +176,13 @@
    OFF (heating and inter-pulse waits). The baseline is a running average of
    those samples, re-learned on every recharge cycle, so barometric drift
    cannot fake a good step. A pulse is "good" only if the raw reading rises
-   to >= baseline + 20,000 counts at any point during the 10 s pump pulse.
+   to >= baseline + 10,000 counts at any point during the 10 s pump pulse.
    One pulse without the step stops the cycle (S09). Since 2026-11-24 the
    check fails closed: no recharge, and no pump pulse, without a fresh
    pressure reading (S08 if it goes missing). Cool down and safety pulses
    are judged too. */
 #define VENT_PRESSURE_CHECK_ENABLED  1
-#define VENT_PRESSURE_MIN_STEP      20000   // Raw counts a pulse must rise above the pump-off reference just before it
+#define VENT_PRESSURE_MIN_STEP      10000   // Raw counts a pulse must rise above the pump-off reference just before it (was 20000 until 2026-11-25; the soft vent line gave a steady ~21000, a wrong valve gives ~2000)
 #define VENT_PRESSURE_BLOCKED_STEP  500000  // A rise this big means the vent line is blocked (S20), not flowing
 /* Reference taken before every pump pulse (2026-11-25): the median of the pump-off readings from the last
    VENT_REF_WINDOW_MS. It replaces the running average, which drifted away from the real idle level as the

@@ -4,7 +4,7 @@ Every way a cycle can end has a permanent code. The touch screen shows it on the
 message ("Recharge ended. Code S09"). The serial log prints one line per stop:
 
 ```
-Stop: S09 VALVE_SUSPECT mode=Recharge | Valve position suspect. | Pump pulse raised the vent pressure 2238 counts. It needs 20000. | ...
+Stop: S09 VALVE_SUSPECT mode=Recharge | Valve position suspect. | Pump pulse raised the vent pressure 2238 counts. It needs 10000. | ...
 ```
 
 The Admin page lists the last three stops. The future SD event log uses the same code and name
@@ -27,7 +27,7 @@ was cooled first".
 | S06 | FROM_ENGINE_LOST | No valid From-Engine reading for 30 s (Auto dryer only) | Stop. | From-Engine probe and cable. |
 | S07 | CHAMBER_LOST | No valid chamber temperature for 30 s (Recharge) | Failure cool down. The heater is never newly turned on without a fresh reading and is off within 6 s of the last good one (`CHAMBER_RETRY_MS`). | Thermistor, 10k resistor, cable. |
 | S08 | VENT_SENSOR_LOST | No vent pressure reading for 30 s during a recharge | Failure cool down with the pump OFF: the valve position cannot be confirmed. A recharge will not start without it. | HX711 module (3.3 V), DOUT 48 / SCK 47, the 2.5 mm tube. |
-| S09 | VALVE_SUSPECT | A recharge, cool down or safety pump pulse did not raise the vent pressure 20,000 counts over the pump-off reading taken just before it (median of the last 6 s) | Immediate stop: pump, heater and valves off. Moisture may have reached the engine. | Both valves, their 12 V supply, the vent line. |
+| S09 | VALVE_SUSPECT | A recharge, cool down or safety pump pulse did not raise the vent pressure 10,000 counts over the pump-off reading taken just before it (median of the last 6 s) | Immediate stop: pump, heater and valves off. Moisture may have reached the engine. | Both valves, their 12 V supply, the vent line. |
 | S10 | VALVE_NO_CURRENT | Valve coil current below 150 mV while energized | Immediate stop. Disabled until the shunt is wired (`VALVE_CURRENT_CHECK_ENABLED`). | Valve wiring and 12 V. |
 | S11 | THERMAL_CHAMBER | Chamber above 255 F | Immediate stop, everything off, starts refused until it cools. Also while idle. | Heater control, thermistor placement. The 266 F fuse is the hardware backstop. |
 | S12 | THERMAL_TO_PROBE | To-Engine probe above 250 F | Same as S11. | Where the probe is mounted. |

@@ -40,7 +40,7 @@ hardware), `docs/ERROR_CODES.md` (stop codes S01-S18), `docs/PROJECT_NOTES.md` (
 - SHT40 probe heaters (burn-off of condensation) are requested by the controller and limited on the sensor node:
   probe under 60 C, 10% duty, 10 s between pulses. Decisions use a freshly dried probe; see `include/probe_care.h`.
 - Vent pressure check **fails closed**: no recharge and no pump pulse without a fresh pressure reading; one
-  pulse without the 20,000-count step stops the cycle (S09).
+  pulse without the 10,000-count step stops the cycle (S09).
 - Sensor loss: 30 s grace, then stop (dryers) or a failure cool down that advances on time (recharge).
 - Loop watchdog (5 s). Every relay is turned off first thing at boot, and a restart mid-cycle is reported (S18).
 - Remote: Recharge cannot be started remotely, remote dryer starts never arm Auto Recharge, starts are accepted

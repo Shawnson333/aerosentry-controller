@@ -827,3 +827,7 @@ in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17
   No steady reference means the pump does not run (S21 after 2 min, failure cool down). A rise of 500,000 or more is S20
   VENT_BLOCKED (the finger test gave 1.65 million). The 20,000 limit is unchanged.
 - **Unverified:** not run on hardware. Flow being ~3x weaker than before is unexplained.
+- 2026-11-25 later: the first run of the new check passed 12 pulses at a steady 21,000 and then stopped at 19,556 (S09) with
+  the soft silicone vent line. Signal is a plateau, not noise, so the minimum step was lowered 20,000 to 10,000 (user decision).
+  Known no-flow signature is about 2,000 and idle noise under 1,000. User also put the old stiff tubing back; the next run
+  shows whether the rise returns to 70,000+. **Unverified:** sim was not re-run after this constant change.
