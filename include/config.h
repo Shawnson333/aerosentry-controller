@@ -146,11 +146,11 @@
 #define RECHARGE_FAILED_FAN_TEMP_F  120.0f     // Cool down (normal and failure) ends at or below this
 
 /* Recharge temperature (2026-11-21). Heat-up ramps the heater 30 s on / 15 s off
-   until the chamber first reaches 245F. Then the normal hold: heater off at
-   245F, back on at 240F (5F hysteresis).
+   until the chamber first reaches 240F. Then the normal hold: heater off at
+   240F, back on at 235F (5F hysteresis).
    Software thermal trip 255F (THERMAL_CHAMBER_F below uses this value).
    Mechanical thermal fuse 266F (hardware, not firmware). */
-#define RECHARGE_TARGET_TEMP_F      245
+#define RECHARGE_TARGET_TEMP_F      240
 #define RECHARGE_TEMP_HYSTERESIS_F  5
 #define RECHARGE_SOFT_OVERTEMP_F  255    // Software thermal trip, stops all outputs
 #define RECHARGE_HARD_OVERTEMP_F  266    // Mechanical thermal fuse, hardware only (documentation)

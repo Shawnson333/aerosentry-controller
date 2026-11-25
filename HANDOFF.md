@@ -55,9 +55,9 @@ Every mode also ends on a thermal trip (S11-S13) and, after the 30 s grace, a se
 - **Source vs board:** in the source tree the cycle STARTS in `SAMPLE_RUN`. The flashed build starts in `DRYING` and reads From-Engine within about 1 s of pump start. That read was old chamber air (13-15.7%), which is the bug the sample fix addresses.
 
 **Recharge sequence** (`RechargePhase`, printed as `Recharge phase N`):
-1. `HEATING` [0]: both valves energized at mode entry, heater on. Heater ramps 30 s on / 15 s off until the chamber first reaches 245 F. Pump off. The vent baseline is learned here (30 s of pump-off samples); the first pulse waits for it. Backstop: if 245 F is not reached within 1 h, failure cool down then S14.
+1. `HEATING` [0]: both valves energized at mode entry, heater on. Heater ramps 30 s on / 15 s off until the chamber first reaches 240 F. Pump off. The vent baseline is learned here (30 s of pump-off samples); the first pulse waits for it. Backstop: if 240 F is not reached within 1 h, failure cool down then S14.
 2. `PULSE_ON` [1]: pump on 10 s. Peak vent pressure is tracked on every new pressure packet. At the end the vent check judges the pulse (a miss stops the cycle, S09; a pulse with no pressure sample is not judged and does not count), then it counts To-Engine samples at or below 15% (three in a row go to cool down). A sensor dropout mid-pulse stops the pump at once and the pulse is re-run after the wait.
-3. `PULSE_WAIT` [2]: pump off 60 s, then `PULSE_ON`. Heater holds 245 F: off at 245, on at 240.
+3. `PULSE_WAIT` [2]: pump off 60 s, then `PULSE_ON`. Heater holds 240 F: off at 240, on at 235.
 4. Max run: 6 h counted from the moment the chamber first reaches target. Latched once, then `COOLDOWN`.
 5. `COOLDOWN` [3]: heater off, case fan on, valves still open, pump 10 s every 10 min only while the vent check can confirm it (each pulse judged), ends at chamber 120 F or below, or after 2 h. The failure cool down is the same phase, entered once, and runs on time alone if the sensors are gone.
 6. `SAFETY_PULSE` [4] pump 10 s (judged by the vent check), `SAFETY_WAIT` [5] 60 s, then To-Engine must read 15% or below. Twice in a row completes the cycle (`RECHARGE_COMPLETE`, or `RECHARGE_MAX_TIME` if the 6 h limit started the cool down). Any sample above 15% stops with `SAFETY_FAILED`.

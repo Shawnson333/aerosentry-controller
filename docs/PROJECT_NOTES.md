@@ -839,3 +839,8 @@ in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17
   recharges, set `VENT_PRESSURE_MIN_STEP` at about a third of the typical rise and keep it well above the ~2,000 wrong-valve
   signature and the ~1,000 idle noise). Any later change of tube length or routing needs a re-check. Also note the slow
   60,000 to 47,000 drift as the line warms.
+- 2026-11-25: recharge target lowered from 245 F to 240 F (user decision): heater off at 240, on at 235 (hysteresis 5 F
+  unchanged), thermal trip still 255 F. Reason: the 245 F hold overshot to 254.5 F on the bench (18% of samples above 250 F,
+  half a degree from the S11 trip). Overnight run (captures/recharge3): 321 of 321 vent pulses good (44,000-78,000), ended S17
+  after 6 h; To-Engine RH at pulse end fell 42.5% to 26.1% and was still falling about 1.6 points an hour; cool-down safety
+  samples read about 13%. **Unverified:** whether 240 F changes the drying rate or the overshoot (sim not a measure of that).

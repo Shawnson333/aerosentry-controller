@@ -28,9 +28,9 @@ hardware), `docs/ERROR_CODES.md` (stop codes S01-S18), `docs/PROJECT_NOTES.md` (
 - **Auto dryer:** samples (10 s pump, 10 s settle, read From-Engine), dries to the target RH, samples hourly.
   With Auto Recharge on (set at the screen, with a warning) a saturated dryer runs a recharge by itself and
   then resumes.
-- **Recharge:** both valves vent outside; heater ramps to 245 F and holds 240-245 F; 10 s pump pulses every
+- **Recharge:** both valves vent outside; heater ramps to 240 F and holds 235-240 F; 10 s pump pulses every
   minute, each confirmed by the vent pressure step; three To-Engine samples at or below 15% end it; 6 h limit
-  from first reaching 245 F; then cool down (fan, valves open, confirmed pulses) to 120 F or 2 h, and two safety
+  from first reaching 240 F; then cool down (fan, valves open, confirmed pulses) to 120 F or 2 h, and two safety
   samples at or below 15%.
 
 ## Safety summary

@@ -72,7 +72,7 @@ result is the click and the relay LED.
 
 | # | Check | Pass when | Result |
 |---|---|---|---|
-| 5.1 | Recharge button | New prompt: safe location / heats to 245 F / water from the discharge port, with **Start Recharge** and **Back** | |
+| 5.1 | Recharge button | New prompt: safe location / heats to 240 F / water from the discharge port, with **Start Recharge** and **Back** | |
 | 5.2 | Tick Allow Auto Recharge on the Manual screen, open the Auto Cycle screen | Both checkboxes show the same state | |
 | 5.3 | Start a dryer cycle with Auto Recharge on | Unattended-recharge warning with Start / Back. Serial: `Auto Recharge armed for this cycle` | |
 | 5.4 | Any stop message | Ends with `<mode> ended. Code Sxx`; long text uses the smaller font and fits above OK | |

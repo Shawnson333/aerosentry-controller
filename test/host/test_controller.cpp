@@ -430,7 +430,7 @@ static void testHeaterDiesWhileHolding() {
 }
 
 static void testWeakHeater() {
-    reset("Weak heater that cannot reach 245 F: stops S14 or S19, never runs on");
+    reset("Weak heater that cannot reach 240 F: stops S14 or S19, never runs on");
     Plant p; p.model = dryingModel; p.heaterRateFps = 0.05f;
     EXPECT(startRecharge(p), "recharge start refused");
     EXPECT(runUntil(p, idle, RECHARGE_HEATUP_MAX_MS + RECHARGE_COOLDOWN_MS + 600000UL), "never stopped");
