@@ -1,7 +1,7 @@
 # Bench test checklist (v1.0.0-beta.1)
 
-Everything below is built and passes the host simulation (`python tools/host_test.py`, 40 scenarios,
-187 checks). Flashed 2026-11-24 (controller and sensor node, both read back and verified); sections 0 and 1
+Everything below is built and passes the host simulation (`python tools/host_test.py`, 41 scenarios,
+195 checks). Flashed 2026-11-24 (controller and sensor node, both read back and verified); sections 0 and 1
 are done, the rest is open. Work top to bottom. Record each result (date,
 pass/fail, log file) in the Result column or in `docs/PROJECT_NOTES.md`.
 
@@ -111,6 +111,8 @@ result is the click and the relay LED.
 | 8.2 | Auto dryer, 12 h or more | First lines after start: `Auto phase 4`, 10 s pump, `Auto phase 5`, settle, then a decision. No stops. | |
 | 8.3 | Radio loss with double send | Count missing sequence numbers in 8.2's log; compare with 0.4% in the 2026-11-23 log | |
 | 8.4 | Auto Recharge from a saturated dryer | Only once 8.1 passes. Recharge starts by itself, completes, the dryer cycle resumes (`Recharge complete - resuming previous cycle`) | |
+| 8.5 | Vent purge after the safety check | After the second safety sample: `Cool down safety check passed - vent purge before sealing`, then about 24 segments of `... purge pulse` lines (30 s pump, short pause), `Vent purge done`, valves close, S16 or the dryer resumes. Afterwards, in the closed-loop dryer, From-Engine should read close to To-Engine (2026-11-25: it spiked above 30% from condensate in the chamber-to-valve line). | |
+| 8.6 | **Unlimited recharge** (planned, user): let the desiccant saturate again, then run a recharge with no 6 h limit to learn how long the chamber really takes to dry. Build with a very large `RECHARGE_MAX_MS` for this test only, log the whole run, and note the hours until 3 samples at or below 15% at temperature, and the To-Engine curve (2026-11-25: 42% to 26% in 6 h, still falling 1.6 points per hour). Restore the 6 h limit afterwards. | |
 
 ## 9. Known gaps (not verifiable yet, or need a plan first)
 

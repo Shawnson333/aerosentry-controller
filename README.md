@@ -31,7 +31,9 @@ hardware), `docs/ERROR_CODES.md` (stop codes S01-S18), `docs/PROJECT_NOTES.md` (
 - **Recharge:** both valves vent outside; heater ramps to 240 F and holds 235-240 F; 10 s pump pulses every
   minute, each confirmed by the vent pressure step; three To-Engine samples at or below 15% end it; 6 h limit
   from first reaching 240 F; then cool down (fan, valves open, confirmed pulses) to 120 F or 2 h, and two safety
-  samples at or below 15%.
+  samples at or below 15%. The two safety samples are the real pass: if they pass, the recharge is complete even
+  when the 6 h limit ended the hot phase. Then a 15 min vent purge (valves open, pump in 30 s segments, vent check
+  on) clears the line, the system seals, and a dryer cycle that asked for the recharge resumes.
 
 ## Safety summary
 

@@ -136,7 +136,7 @@ private:
     enum class ManualPhase { ON, OFF };
     enum class AutoPhase { DRYING, COOLDOWN, QUICK_SAMPLE, WAITING, SAMPLE_RUN, SAMPLE_SETTLE };
     // SAFETY_PREP (6, 2026-11-24) dries the To-Engine probe before each safety pulse.
-    enum class RechargePhase { HEATING, PULSE_ON, PULSE_WAIT, COOLDOWN, SAFETY_PULSE, SAFETY_WAIT, SAFETY_PREP };
+    enum class RechargePhase { HEATING, PULSE_ON, PULSE_WAIT, COOLDOWN, SAFETY_PULSE, SAFETY_WAIT, SAFETY_PREP, PURGE };
 
     SystemMode _mode;
     Command _pendingCmd;
@@ -195,6 +195,7 @@ private:
     int32_t _ventLastRef;           // Reference of the last judged pulse, for the Admin page
     uint32_t _cooldownWindow;       // Which 10 min cool down window the pulse logic is in
     bool _cooldownPulseRun;         // This window's cool down pulse is running
+    uint32_t _purgeStartMs;         // When the post-safety vent purge began
     uint8_t _pulseCount;            // Recharge pulses completed, used for the first-pulse flush
     uint8_t _valveNoCurrentCount;   // Consecutive low shunt readings while energized
     uint32_t _valveCommandMs;       // millis() when the valve was energized
@@ -244,6 +245,7 @@ private:
     void setRechargePhase(RechargePhase phase);
     void setValve(bool on);
     void rechargeFailureCooldown(StopReason reason);
+    void finishRecharge();
     void checkValveCurrent();
     enum class VentResult { OK, FAULT, NOT_JUDGED };
     VentResult judgeVentPulse(const char* label);

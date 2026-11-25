@@ -51,3 +51,11 @@ The vent tube. Earlier tests used a ~2 ft coiled bench piece; the swap was a str
 gave ~60,000 at the first pulse (drifting to ~47,000). The rise depends on tube length and coil. When the final enclosure
 and tube length exist, calibrate `VENT_PRESSURE_MIN_STEP` (now 10,000) from real recharges. Overnight capture:
 `captures/recharge3-20261125-0101.txt` (git-ignored).
+
+## 2026-11-25 later (committed, NOT flashed; the board runs the older build)
+- Target 240 F (hold 235-240). A passed cool down safety check is a pass even after the 6 h limit (S16; S17 retired).
+- NEW after the safety check passes: 15 min vent purge outside, valves open, pump in 30 s segments, vent check on; then
+  seal, and a dryer cycle that asked for the recharge resumes (also after the time limit). Sim 195 checks pass.
+- TODO test: unlimited recharge (no 6 h limit) from a saturated chamber to see the true time to dry (checklist 8.6).
+- Observed: after the recharge the closed-loop dryer showed From-Engine above 30% vs To-Engine 6-7%; likely condensate in
+  the chamber-to-valve line. Check that the purge fixes it (checklist 8.5).

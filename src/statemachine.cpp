@@ -260,6 +260,7 @@ StateMachine::StateMachine()
     , _ventLastRef(0)
     , _cooldownWindow(UINT32_MAX)
     , _cooldownPulseRun(false)
+    , _purgeStartMs(0)
     , _valveNoCurrentCount(0)
     , _valveCommandMs(0)
     , _valveCheckMs(0)
@@ -744,13 +745,11 @@ void StateMachine::updateRecharge(bool sensorsOk) {
         (_rechargePhase == RechargePhase::PULSE_ON ||
          _rechargePhase == RechargePhase::PULSE_WAIT)) {
         // Max run time, counted from the moment the chamber first reached target
-        // (heat-up does not count). Latch it once so it cannot re-fire, never resume
-        // an earlier cycle, and run the normal cool down and safety check before
+        // (heat-up does not count). Latch it once so it cannot re-fire and run the normal cool down and safety check before
         // stopping. A cycle already in cool down or the safety check finishes
         // normally and is reported as complete.
         _rechargeTimedOut = true;
-        _rechargeTriggeredByCycle = false;
-        Serial.println(F("Recharge 6h max at temperature - cool down, then safety check, no resume"));
+        Serial.println(F("Recharge 6h max at temperature - cool down, safety check, then vent purge"));
         setRechargePhase(RechargePhase::COOLDOWN);
     }
     checkValveCurrent();
@@ -759,7 +758,8 @@ void StateMachine::updateRecharge(bool sensorsOk) {
     const bool cooling = _rechargePhase == RechargePhase::COOLDOWN ||
                          _rechargePhase == RechargePhase::SAFETY_PULSE ||
                          _rechargePhase == RechargePhase::SAFETY_WAIT ||
-                         _rechargePhase == RechargePhase::SAFETY_PREP;
+                         _rechargePhase == RechargePhase::SAFETY_PREP ||
+                         _rechargePhase == RechargePhase::PURGE;
     if (cooling) {
         _heaterOn = false;
         _heaterCheckArmed = false;
@@ -924,32 +924,12 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                 if (sensors.toEngineRH <= RECHARGE_TARGET_RH) {
                     _safetyCheckCount++;
                     if (_safetyCheckCount >= SAFETY_SAMPLE_COUNT) {
-                        _valveEnergized = false;
-                        _rechargeEndEpoch = systemClockEpoch();
-                        if (_rechargeTimedOut) {
-                            // User decision 2026-11-25: a passed cool down safety check is a pass,
-                            // even when the 6 h limit ended the hot phase. Hot readings stay high
-                            // and fall slowly, so the dry samples at temperature can be out of reach.
-                            Serial.println(F("Recharge hit the time limit, cool down safety check passed - complete"));
-                            stopWith(StopReason::RECHARGE_COMPLETE,
-                                     "The 6 h limit ended the hot phase, and the cool down safety check passed.");
-                            return;
-                        }
-                        if (_rechargeTriggeredByCycle &&
-                            (_rechargeResumeMode == SystemMode::DRYER_MANUAL ||
-                             _rechargeResumeMode == SystemMode::DRYER_AUTO)) {
-                            SystemMode resumeMode = _rechargeResumeMode;
-                            _rechargeTriggeredByCycle = false;
-                            _rechargeResumeMode = SystemMode::IDLE;
-                            Serial.println(F("Recharge complete - resuming previous cycle"));
-                            probeCareRechargeEnded();
-                            logger.logStop((uint8_t)StopReason::RECHARGE_COMPLETE,
-                                           stopReasonName(StopReason::RECHARGE_COMPLETE),
-                                           SystemMode::RECHARGE, nullptr);
-                            enterMode(resumeMode);
-                            return;
-                        }
-                        stopWith(StopReason::RECHARGE_COMPLETE);
+                        // Passed. Keep venting outside for a while to clear the line, then
+                        // finishRecharge() seals the system (or resumes the dryer cycle).
+                        Serial.println(F("Cool down safety check passed - vent purge before sealing"));
+                        _purgeStartMs = millis();
+                        resetVentPulse();
+                        setRechargePhase(RechargePhase::PURGE);
                         return;
                     }
                 } else {
@@ -967,7 +947,59 @@ void StateMachine::updateRecharge(bool sensorsOk) {
                 setRechargePhase(RechargePhase::SAFETY_PREP);
             }
             break;
+        case RechargePhase::PURGE: {
+            // Vent purge (user decision 2026-11-25): pump on in segments with the valves
+            // venting outside, heater off. Each segment is judged against a fresh pump-off
+            // reference, so the vent pressure check stays on throughout.
+            _heaterOn = false;
+            if (!_ventRefFrozen) {
+                if (millis() - _purgeStartMs >= RECHARGE_PURGE_MS) {
+                    Serial.println(F("Vent purge done"));
+                    _pumpOn = false;
+                    finishRecharge();
+                    return;
+                }
+                if (!beginVentPulse()) break;
+            }
+            _pumpOn = true;
+            trackVentPulse();
+            if (phaseElapsed() < RECHARGE_PURGE_SEGMENT_MS) break;
+            _pumpOn = false;
+            const VentResult vent = judgeVentPulse("purge");
+            if (vent == VentResult::FAULT) return;  // Stopped with VALVE_SUSPECT or VENT_BLOCKED.
+            break;
+        }
     }
+}
+
+/* The recharge passed: seal the system and either resume the dryer cycle that asked for
+   it or stop as complete. A time-limited recharge with a passed safety check is a pass. */
+void StateMachine::finishRecharge() {
+    _valveEnergized = false;
+    _rechargeEndEpoch = systemClockEpoch();
+    if (_rechargeTriggeredByCycle &&
+        (_rechargeResumeMode == SystemMode::DRYER_MANUAL ||
+         _rechargeResumeMode == SystemMode::DRYER_AUTO)) {
+        SystemMode resumeMode = _rechargeResumeMode;
+        _rechargeTriggeredByCycle = false;
+        _rechargeResumeMode = SystemMode::IDLE;
+        Serial.println(F("Recharge complete - resuming previous cycle"));
+        probeCareRechargeEnded();
+        logger.logStop((uint8_t)StopReason::RECHARGE_COMPLETE,
+                       stopReasonName(StopReason::RECHARGE_COMPLETE),
+                       SystemMode::RECHARGE, nullptr);
+        enterMode(resumeMode);
+        return;
+    }
+    if (_rechargeTimedOut) {
+        // A passed cool down safety check is a pass, even when the 6 h limit ended the
+        // hot phase (hot readings fall slowly; 15% at temperature can be out of reach).
+        Serial.println(F("Recharge hit the time limit, cool down safety check passed - complete"));
+        stopWith(StopReason::RECHARGE_COMPLETE,
+                 "The 6 h limit ended the hot phase, and the cool down safety check passed.");
+        return;
+    }
+    stopWith(StopReason::RECHARGE_COMPLETE);
 }
 
 /* Heater response check (user idea 2026-11-24). Tracks the lowest chamber
@@ -1013,6 +1045,9 @@ void StateMachine::holdRechargeForSensors() {
         case RechargePhase::SAFETY_PULSE:
             resetVentPulse();
             _phaseStartTime = millis();  // the full safety pulse runs once sensors are back
+            break;
+        case RechargePhase::PURGE:
+            resetVentPulse();  // the segment in progress is cut and not judged; the next starts when sensors return
             break;
         default:
             break;
@@ -1200,6 +1235,7 @@ void StateMachine::rechargeFailureCooldown(StopReason reason) {
         case RechargePhase::SAFETY_PREP:
         case RechargePhase::SAFETY_PULSE:
         case RechargePhase::SAFETY_WAIT:
+        case RechargePhase::PURGE:
             _valveEnergized = false;
             _rechargeEndEpoch = systemClockEpoch();
             stopWith(reason, nullptr, true);
@@ -1697,6 +1733,12 @@ const char* StateMachine::statusText() const {
                                    phaseRemaining(SAFETY_SAMPLE_INTERVAL_MS));
                     snprintf(buf, sizeof(buf), "Safety sample %s", remain);
                     return buf;
+                case RechargePhase::PURGE: {
+                    const uint32_t used = millis() - _purgeStartMs;
+                    formatDuration(remain, sizeof(remain), used >= RECHARGE_PURGE_MS ? 0 : RECHARGE_PURGE_MS - used);
+                    snprintf(buf, sizeof(buf), "Vent purge %s, then seal", remain);
+                    return buf;
+                }
             }
             break;
         default:

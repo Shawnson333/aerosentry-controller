@@ -851,3 +851,7 @@ in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17
 - Observed after the recharge (user, closed-loop dryer): To-Engine 6-7%, From-Engine spiked above 30% and fell to ~17%
   after one full pump run. Probable cause (unverified): condensate left in the line between the chamber end and the valve
   evaporating into the loop. Idea: a longer vent purge after a recharge. Not decided or built.
+- 2026-11-25 (user decisions): after a passed cool down safety check the recharge vents outside for 15 min (valves open, pump
+  in 30 s segments, vent check judged per segment, new phase PURGE = 7), then seals. A passed safety check also lets the
+  dryer cycle that asked for the recharge resume, even after the 6 h limit. Planned test: an unlimited-time recharge
+  from saturation to measure the real drying time (checklist 8.6). Sim 195 checks pass; not flashed, not bench tested.

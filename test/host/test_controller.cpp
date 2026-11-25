@@ -293,6 +293,9 @@ static void testNormalRecharge() {
     EXPECT(logHas("cool down pulse"), "no cool down pulse was judged");
     EXPECT(logHas("safety pulse"), "safety pulses were not judged");
     EXPECT(logHas("Cool down done after"), "cool down end not logged");
+    EXPECT(logHas("vent purge before sealing"), "no vent purge after the safety check");
+    EXPECT(logCount("purge pulse") >= 15, "only %u purge segments judged", (unsigned)logCount("purge pulse"));
+    EXPECT(logHas("Vent purge done"), "purge end not logged");
     std::string m = takeMessage();
     EXPECT(m.find("Code S16") != std::string::npos, "message lacks Code S16: %s", m.c_str());
 }
@@ -385,6 +388,17 @@ static void testValveSticksInCooldown() {
     p.valveStuck = true;
     EXPECT(runUntil(p, idle, 3600000UL), "never stopped");
     EXPECT(logHas("Stop: S09 VALVE_SUSPECT"), "no S09 stop");
+}
+
+static void testValveSticksInPurge() {
+    reset("Valve sticks during the post-safety vent purge: the next segment catches it, stop S09");
+    Plant p; p.model = dryingModel;
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logHas("vent purge before sealing"); }, 8UL * 3600000UL), "never reached the purge");
+    p.valveStuck = true;
+    EXPECT(runUntil(p, idle, 3600000UL), "never stopped");
+    EXPECT(logHas("Stop: S09 VALVE_SUSPECT"), "no S09 stop");
+    EXPECT(!logHas("Stop: S16"), "a failed purge was reported as complete");
 }
 
 static void testToEngineLostInCooldown() {
@@ -874,6 +888,7 @@ int main(int argc, char** argv) {
     testPressureLostWhileHeating();
     testValveStuck();
     testValveSticksInCooldown();
+    testValveSticksInPurge();
     testToEngineLostInCooldown();
     testHeaterDeadAtStart();
     testHeaterDiesWhileHolding();

@@ -116,6 +116,11 @@
 #define AUTO_COOLDOWN_MS        600000UL  // Auto: cooldown between quick cycles 10 min
 #define AUTO_MAX_QUICK_CYCLES   3         // Auto: max quick cycles before regular rotation
 
+/* After the cool down safety check passes (2026-11-25): vent outside for this long to clear
+   condensate left in the line between the chamber and the valve, then seal for drying. Run as
+   segments, each judged by the vent pressure check against a fresh pump-off reference. */
+#define RECHARGE_PURGE_MS           900000UL   // 15 min
+#define RECHARGE_PURGE_SEGMENT_MS   30000UL    // pump on this long per segment
 #define RECHARGE_MAX_MS         21600000UL // Recharge max 6 hours, counted from the moment the chamber first reaches target
 #define RECHARGE_HEATUP_MAX_MS  3600000UL  // Backstop: chamber must reach target within 1 hour of start, or stop (S14)
 /* Heater response check (user idea, 2026-11-24). While the heater is
