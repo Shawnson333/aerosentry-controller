@@ -122,3 +122,22 @@ result is the click and the relay LED.
 - The XL9535 keeps its outputs through an ESP32 reset (assumed; 4.1 shows how long the relays stay on).
 - Valve coil current check stays disabled until the shunt is wired.
 - Desiccant amount (4 lb vs about 2 lb) is still open.
+
+## 10. SHT40 probe heaters (packet v4, not flashed yet)
+
+Controller and sensor node must be flashed together (packet version 4). Policy is in `include/probe_care.h`,
+limits in `common/probe_heat.h`. The Admin screen shows each probe's raw reading, heater state and minutes since
+the last burn-off, with "Dry To" and "Dry From" buttons that run a 2-pulse burn-off on demand.
+
+| # | Check | Pass when | Result |
+|---|---|---|---|
+| 10.1 | Idle, Admin > Dry To | Log `Probe dry To-Engine: 2 pulses (admin button)`; state goes REQUESTED, HEATING, RECOVERING, clean; "dried 0 min ago" afterwards | |
+| 10.2 | Same for Dry From | Same, From-Engine; the two probes never heat in the same second | |
+| 10.3 | Press Dry To twice quickly | Second press is ignored (already drying); no extra pulses | |
+| 10.4 | Watch the To-Engine reading during 10.1 | Reads low and warm while heating (heated die); the main screen value stays steady during it | |
+| 10.5 | Breathe on or lightly wet a probe, then Dry To | Reading falls from high to the room value after the burn-off | |
+| 10.6 | Unplug the sensor node, press Dry To | Retries 4 times, then `no answer from the sensor node, dropped` | |
+| 10.7 | Auto dryer start | A From-Engine burn-off precedes the first decision (`before an auto dryer sample`) | |
+| 10.8 | Recharge | To-Engine burn-off 15 s into each 60 s pulse wait; 3-pulse burn-off before each safety sample; after the recharge a burn-off every 3 min for 30 min, then every 15 min (wet history, up to 36 h) | |
+| 10.9 | Saturation stop (To-Engine above 40% for 30 s) | `drying the probe to confirm` first; stops S03 only if it still reads above 40% on the dried probe | |
+| 10.10 | Idle with a probe within 3 C of its dew point (about 85% RH) | Burn-off about every 10 min (`condensation zone`); a dry probe is never heated at idle | |

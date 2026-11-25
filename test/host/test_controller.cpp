@@ -488,7 +488,7 @@ static void testAutoRechargeBlocked() {
     EXPECT(stateMachine.command(Command::START_DRYER_MANUAL), "manual start refused");
     runFor(p, 5000);
     p.toRH = 55.0f;
-    EXPECT(runUntil(p, idle, 60000), "no saturation stop");
+    EXPECT(runUntil(p, idle, 150000), "no saturation stop");
     EXPECT(logHas("Stop: S03 SATURATED"), "no S03 stop");
     EXPECT(!logHas("Mode -> Recharge"), "a recharge started without vent pressure");
     std::string m = takeMessage();
@@ -623,7 +623,7 @@ static void testRemoteDryerNeverArmsAutoRecharge() {
     EXPECT(logHas("Auto Recharge stays off for remote starts"), "ack does not say Auto Recharge is off");
     EXPECT(!stateMachine.autoRechargeArmed(), "remote start armed Auto Recharge");
     p.toRH = 55.0f;
-    EXPECT(runUntil(p, idle, 60000), "no saturation stop");
+    EXPECT(runUntil(p, idle, 150000), "no saturation stop");
     EXPECT(logHas("Stop: S03 SATURATED"), "no S03 stop");
     EXPECT(!logHas("Mode -> Recharge"), "remote start led to a recharge");
 }
@@ -723,6 +723,94 @@ static void testRestartReport() {
            "idle restart message: %s", m.c_str());
 }
 
+/* ---------- probe heater scenarios ---------- */
+
+static void testSaturationConfirmedOnDriedProbe() {
+    reset("Saturation: the probe is burned off first, then the stop is confirmed (S03)");
+    Plant p;
+    runFor(p, 5000);
+    EXPECT(stateMachine.command(Command::START_DRYER_MANUAL), "manual start refused");
+    runFor(p, 5000);
+    p.toRH = 55.0f;
+    EXPECT(runUntil(p, idle, 150000), "no saturation stop");
+    EXPECT(logHas("confirm saturation"), "no burn-off before the stop");
+    EXPECT(p.toPulses >= 1, "the heater never pulsed (%lu)", (unsigned long)p.toPulses);
+    EXPECT(logHas("Stop: S03 SATURATED"), "no S03 stop");
+}
+
+static void testWetProbeDoesNotFalseSaturate() {
+    reset("Wet probe reads 99% in dry air: the burn-off clears it, no false S03");
+    Plant p; p.toRH = 20.0f;
+    runFor(p, 5000);
+    EXPECT(stateMachine.command(Command::START_DRYER_MANUAL), "manual start refused");
+    runFor(p, 5000);
+    p.toWater = 3;  // condensation on the chip
+    runFor(p, 150000);
+    EXPECT(!idle(), "a wet probe stopped the dryer");
+    EXPECT(!logHas("Stop: S03"), "false saturation stop");
+    EXPECT(p.toWater == 0, "chip still wet (%d)", p.toWater);
+    EXPECT(logHas("confirm saturation"), "the wet reading was not checked with a burn-off");
+}
+
+static void testProbeTooHotSaturationStops() {
+    reset("Probe too hot to heat: saturation stops on the reading, S03, after the wait");
+    Plant p; p.toC = 62.0f;
+    runFor(p, 5000);
+    EXPECT(stateMachine.command(Command::START_DRYER_MANUAL), "manual start refused");
+    runFor(p, 5000);
+    p.toRH = 55.0f;
+    EXPECT(runUntil(p, idle, 150000), "no saturation stop");
+    EXPECT(p.toPulses == 0, "heater pulsed a 62 C probe (%lu)", (unsigned long)p.toPulses);
+    EXPECT(logHas("Stop: S03 SATURATED"), "no S03 stop");
+}
+
+static void testPostRechargeSeries() {
+    reset("After a recharge both probes are dried every 3 minutes for 30 minutes");
+    Plant p;
+    runFor(p, 5000);
+    probeCareRechargeEnded();
+    runFor(p, PROBE_POST_RECHARGE_MS - 60000UL);
+    const size_t during = logCount("post-recharge series");
+    EXPECT(during >= 2 * 8, "only %u post-recharge burn-offs in 29 min", (unsigned)during);
+    EXPECT(p.toPulses >= 8 * PROBE_DRY_PULSES_LONG - 3, "To heater pulsed %lu times", (unsigned long)p.toPulses);
+    EXPECT(p.fromPulses >= 8 * PROBE_DRY_PULSES_LONG - 3, "From heater pulsed %lu times", (unsigned long)p.fromPulses);
+    EXPECT(!logHas("refused"), "a burn-off was refused");
+    runFor(p, 5UL * 60000UL);
+    const size_t after = logCount("post-recharge series");
+    runFor(p, 10UL * 60000UL);
+    EXPECT(logCount("post-recharge series") == after, "series kept running after 30 min");
+    EXPECT(logHas("wet history"), "no wet-history drying after the series");
+}
+
+static void testIdleCondensationZone() {
+    reset("Idle: near the dew point a probe is dried every 10 min; in dry air never");
+    Plant p; p.toRH = 90.0f; p.fromRH = 30.0f;  // 90% at 25 C is under 2 C from the dew point
+    runFor(p, 35UL * 60000UL);
+    EXPECT(logCount("condensation zone") >= 3, "only %u zone burn-offs in 35 min",
+           (unsigned)logCount("condensation zone"));
+    EXPECT(p.fromPulses == 0, "the dry probe was heated (%lu)", (unsigned long)p.fromPulses);
+    EXPECT(idle(), "left idle");
+}
+
+static void testDisplayHoldsWhileHeating() {
+    reset("Display value stays steady while a probe heats and recovers");
+    Plant p; p.toRH = 30.0f;
+    runFor(p, 60000);
+    float before = 0;
+    EXPECT(probeDisplayRH(Probe::TO_ENGINE, before), "no display value");
+    float worst = 0;
+    probeDry(Probe::TO_ENGINE, PROBE_DRY_PULSES, "test");
+    bool sawBusy = false;
+    for (int i = 0; i < 2400; ++i) {  // 60 s
+        step(p, 25);
+        if (probeBusy(Probe::TO_ENGINE)) sawBusy = true;
+        float now = 0;
+        if (probeDisplayRH(Probe::TO_ENGINE, now)) worst = fmaxf(worst, fabsf(now - before));
+    }
+    EXPECT(sawBusy, "the probe never went busy");
+    EXPECT(worst < 1.5f, "display moved %.1f points during a burn-off", worst);
+}
+
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);  // show progress even if a scenario hangs
     for (int i = 1; i < argc; ++i) {
@@ -759,6 +847,12 @@ int main(int argc, char** argv) {
     testDuplicatePacketsCountedOnce();
     testRelayBusOverlap();
     testRestartReport();
+    testSaturationConfirmedOnDriedProbe();
+    testWetProbeDoesNotFalseSaturate();
+    testProbeTooHotSaturationStops();
+    testPostRechargeSeries();
+    testIdleCondensationZone();
+    testDisplayHoldsWhileHeating();
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

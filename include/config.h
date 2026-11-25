@@ -227,9 +227,9 @@
 
 /* --- UI Colors (dark theme) --- */
 #define UI_BG_COLOR         0x0A1628  // Deep navy background
-#define UI_PANEL_COLOR      0x1A2E4A  // Secondary buttons, panels
+#define UI_PANEL_COLOR      0x12304F  // Secondary buttons, panels
 #define UI_INFO_COLOR       0x3399FF  // Auto Cycle button
-#define UI_ACCENT_COLOR     0x00FF88  // Green accent
+#define UI_ACCENT_COLOR     0x00E5FF  // Cyan accent ("Jarvis" look)
 #define UI_WARN_COLOR       0xFF4444  // Red for warnings/stop
 #define UI_TEXT_COLOR       0xFFFFFF  // White text
 

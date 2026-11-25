@@ -36,13 +36,18 @@ static lv_obj_t* makeButton(lv_obj_t* parent, int16_t x, int16_t y,
     lv_obj_t* btn = lv_btn_create(parent);
     lv_obj_set_size(btn, w, h);
     lv_obj_set_pos(btn, x, y);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(bgColor), 0);
+    // Dark fill with a bright outline; only the red Stop button stays solid.
+    const bool solid = bgColor == UI_WARN_COLOR;
+    lv_obj_set_style_bg_color(btn, lv_color_hex(solid ? bgColor : UI_PANEL_COLOR), 0);
     lv_obj_set_style_radius(btn, 10, 0);
+    lv_obj_set_style_border_width(btn, 2, 0);
+    lv_obj_set_style_border_color(btn, lv_color_hex(bgColor), 0);
+    lv_obj_set_style_shadow_width(btn, 0, 0);
     lv_obj_add_event_cb(btn, callback, LV_EVENT_CLICKED, nullptr);
     lv_obj_t* label = lv_label_create(btn);
     lv_label_set_text(label, text);
     lv_obj_center(label);
-    lv_obj_set_style_text_color(label, lv_color_hex(UI_TEXT_COLOR), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(solid ? UI_TEXT_COLOR : bgColor), 0);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_28, 0);
     return btn;
 }
@@ -65,6 +70,9 @@ void uiShowMain() {
         lv_obj_align(dateTimeBtn, LV_ALIGN_TOP_MID, 0, 85);
         lv_obj_set_style_bg_color(dateTimeBtn, lv_color_hex(UI_PANEL_COLOR), 0);
         lv_obj_set_style_radius(dateTimeBtn, 8, 0);
+        lv_obj_set_style_border_width(dateTimeBtn, 1, 0);
+        lv_obj_set_style_border_color(dateTimeBtn, lv_color_hex(UI_ACCENT_COLOR), 0);
+        lv_obj_set_style_shadow_width(dateTimeBtn, 0, 0);
         lv_obj_add_event_cb(dateTimeBtn, cbDateTime, LV_EVENT_CLICKED, nullptr);
         dateTimeLabel = lv_label_create(dateTimeBtn);
         lv_label_set_text(dateTimeLabel, "--:--  --/--/----");

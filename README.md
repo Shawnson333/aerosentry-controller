@@ -37,6 +37,8 @@ hardware), `docs/ERROR_CODES.md` (stop codes S01-S18), `docs/PROJECT_NOTES.md` (
 
 - Software thermal trip: chamber 255 F, humidity probes 250 F. Starts are refused above them.
 - Heater is never newly enabled without a fresh chamber reading.
+- SHT40 probe heaters (burn-off of condensation) are requested by the controller and limited on the sensor node:
+  probe under 60 C, 10% duty, 10 s between pulses. Decisions use a freshly dried probe; see `include/probe_care.h`.
 - Vent pressure check **fails closed**: no recharge and no pump pulse without a fresh pressure reading; one
   pulse without the 20,000-count step stops the cycle (S09).
 - Sensor loss: 30 s grace, then stop (dryers) or a failure cool down that advances on time (recharge).

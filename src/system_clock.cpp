@@ -14,6 +14,7 @@ static const time_t MIN_BOOT_RTC_EPOCH = 1700000000; // Reject an unset 2000-era
 static time_t baseEpoch = 0;
 static uint32_t baseMillis = 0;
 static bool initialized = false;
+#define CLOCK_FLASH_SAVE_MS (30UL * 60UL * 1000UL)  // software-clock fallback only
 static bool rtcPresent = false;
 static bool rtcReady = false;
 static Preferences clockStore;
@@ -215,7 +216,14 @@ void systemClockSave() {
         Serial.println(F("DS3231M refresh failed; keeping the software fallback current"));
     }
     const time_t fallbackEpoch = currentEpoch();
-    clockStore.putUInt("clock", (uint32_t)fallbackEpoch);
+    // A flash write stops the CPU cache and starves the RGB panel's PSRAM
+    // framebuffer, which shows as a whole-screen flash. Keep them rare.
+    static uint32_t lastFlashWrite = 0;
+    if (lastFlashWrite == 0 || millis() - lastFlashWrite >= CLOCK_FLASH_SAVE_MS) {
+        lastFlashWrite = millis() | 1;
+        clockStore.putUInt("clock", (uint32_t)fallbackEpoch);
+        Serial.println(F("Clock fallback saved to flash"));
+    }
     setBaseEpoch(fallbackEpoch); // Re-anchor periodically so millis() rollover cannot accumulate.
 }
 

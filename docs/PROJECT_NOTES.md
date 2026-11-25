@@ -795,3 +795,20 @@ target) stops the recharge through the failure cool down, in heat-up or hold. Fr
 in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17 F in 2 min. The 1 h backstop stays.
 
 **Not verified yet:** everything in `docs/BENCH_TEST_CHECKLIST.md` from section 2 on.
+
+
+## 2026-11-24 evening: probe heater policy, Admin buttons, scenarios (nothing flashed)
+
+- SHT40 heater burn-off: the controller asks (`probe_care.cpp`), the node enforces the hard limits
+  (`common/probe_heat.h`). Packet version 4, so controller and node must be flashed together.
+- Admin screen now shows each probe's raw reading, heater state and dried age, plus "Dry To" and "Dry From" buttons.
+- Host scenarios added: saturation confirmed on a dried probe, wet probe not causing a false S03, probe too hot to
+  heat, post-recharge series, idle condensation zone, display hold. Saturation waits raised to 150 s.
+- **Unverified:** the six new scenarios had not been run when this was written; the heater work has not been on a bench.
+- Bench checks are section 10 of `docs/BENCH_TEST_CHECKLIST.md`.
+- Display flash, **hypothesis, not verified**: the idle whole-screen flashes may be the 60 s software-clock write to
+  flash (`systemClockSave()`, NVS, no DS3231M on the bench). A flash write stops the cache, and the panel scans its
+  framebuffer from PSRAM. That write is now every 30 min and logs `Clock fallback saved to flash`; after flashing,
+  check whether the flashes line up with that line. If they still happen at idle, the cause is something else.
+- UI restyle: cyan accent (0x00E5FF), outlined buttons with a dark fill, solid red Stop. Background left unchanged so
+  it does not confuse the flash investigation. Builds; not seen on the panel.
