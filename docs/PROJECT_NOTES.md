@@ -812,3 +812,8 @@ in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17
   check whether the flashes line up with that line. If they still happen at idle, the cause is something else.
 - UI restyle: cyan accent (0x00E5FF), outlined buttons with a dark fill, solid red Stop. Background left unchanged so
   it does not confuse the flash investigation. Builds; not seen on the panel.
+- Display flash, update 2026-11-24 night: the clock-write hypothesis above is **not supported**. In the stamped capture
+  (`captures/glitch-stamped.txt`, RTC present so no clock flash writes) the screen still dimmed 30+ times in 2 minutes,
+  and the log shows no event near them (only ESP-NOW packets every 1.085 s, which do not match the irregular dims).
+  A dim that sweeps top to bottom on video is most likely one bad frame seen through the camera's rolling shutter,
+  i.e. a PSRAM-bandwidth underrun of the RGB panel. Cause still unknown. Next test: `DISPLAY_PCLK_HZ` 12 MHz.

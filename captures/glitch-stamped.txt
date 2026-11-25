@@ -1,0 +1,186 @@
+23:17:49.824 [capture start]
+23:17:49.829 [serial connected]
+23:17:49.930 [reset pulsed]
+23:17:49.930 ESP-ROM:esp32s3-20210327
+23:17:49.930 Build:Mar 27 2021
+23:17:49.931 rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+23:17:49.931 Saved PC:0x420b3286
+23:17:49.931 SPIWP:0xee
+23:17:49.931 mode:DIO, clock div:1
+23:17:49.931 load:0x3fce3808,len:0x4bc
+23:17:49.931 load:0x403c9700,len:0xbd8
+23:17:49.931 load:0x403cc700,len:0x2a0c
+23:17:49.931 entry 0x403c98d0
+23:17:50.204 XL9535 reg 0x04 <= 0x00 0x00 result 0
+23:17:50.204 XL9535 reg 0x02 <= 0x00 0x00 result 0
+23:17:50.205 XL9535 reg 0x06 <= 0x00 0x00 result 0
+23:17:50.207 XL9535 outputs OFF (8 channels enabled)
+23:17:51.205 
+23:17:51.205 === AeroSentry Controller Starting ===
+23:17:51.205 Firmware 1.0.0-beta.1, built Nov 24 2026 22:58:45
+23:17:51.206 I2C bus initialized (GPIO 8/9)
+23:17:51.206 Relay driver OK - all relays OFF
+23:17:51.206 Initializing Waveshare display and touch...
+23:17:51.206 PSRAM detected: yes; free: 8386295 bytes
+23:17:51.625 CH422G touch reset released
+23:17:51.649 GT911 touch found at 0x5D, ID 911
+23:17:51.649 ST7262 RGB display initialized (800x480)
+23:17:51.651 LVGL initialized
+23:17:51.651 Display ready: 800 x 480
+23:17:51.667 I2C devices: 0x20-0x27 0x30-0x3F 0x51 0x57 0x5D 0x68
+23:17:51.667 XL9535 reg 0x04 <= 0xA5 0x5A result 0
+23:17:51.670 XL9535 reg 0x04 <= 0xFF 0xFF result 0
+23:17:51.672 XL9535 reg 0x04 <= 0x00 0x00 result 0
+23:17:51.674 XL9535 reg 0x04 <= 0x00 0x00 result 0
+23:17:51.675 XL9535 readback test: wrote A5 5A read 24 58 recovered A4 58, wrote FF FF read 26 FD recovered FE FD, wrote 00 00 read 00 00 recovered 00 00 -> MISMATCH: writes to the relay board are not landing as sent
+23:17:51.722 ESP-NOW listening on channel 1
+23:17:51.722 Sensor receiver ready
+23:17:51.722 SD logger disabled
+23:17:51.726 DS3231M RTC ready at 0x68
+23:17:51.726 Reset cause 0: Reset over USB (flashing or a serial tool), or the cause is unknown.
+23:17:51.726 XL9535 reg 0x02 <= 0x00 0x00 result 0
+23:17:51.726 State machine ready - Idle mode
+23:17:51.726 Rules: purge/manual watch To-Engine; auto watches both; recharge ignores 40%
+23:17:51.728 UI started - Main screen shown
+23:17:51.728 Loop watchdog on (5 s)
+23:17:51.728 === Setup complete ===
+23:17:52.114 2284 ms ESP-NOW seq 270 flags 0x0F chamber 52.0F age 0 ms valve 276 mV press 4741847
+23:17:52.114 Vent ambient sample 1: 4741847 raw (count 1)
+23:17:53.201 3371 ms ESP-NOW seq 271 flags 0x0F chamber 52.0F age 0 ms valve 279 mV press 4741854
+23:17:54.287 4457 ms ESP-NOW seq 272 flags 0x0F chamber 52.2F age 0 ms valve 278 mV press 4741817
+23:17:55.370 5540 ms ESP-NOW seq 273 flags 0x0F chamber 51.5F age 0 ms valve 277 mV press 4741903
+23:17:56.459 6629 ms ESP-NOW seq 274 flags 0x0F chamber 52.2F age 0 ms valve 275 mV press 4741868
+23:17:57.544 7714 ms ESP-NOW seq 275 flags 0x0F chamber 52.2F age 0 ms valve 274 mV press 4741857
+23:17:58.630 8800 ms ESP-NOW seq 276 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741965
+23:17:59.716 9887 ms ESP-NOW seq 277 flags 0x0F chamber 52.0F age 0 ms valve 277 mV press 4741919
+23:18:00.868 11038 ms ESP-NOW seq 278 flags 0x0F chamber 51.7F age 0 ms valve 275 mV press 4741803
+23:18:01.887 12057 ms ESP-NOW seq 279 flags 0x0F chamber 51.5F age 0 ms valve 274 mV press 4741898
+23:18:02.974 13144 ms ESP-NOW seq 280 flags 0x0F chamber 52.0F age 0 ms valve 273 mV press 4741807
+23:18:04.059 14229 ms ESP-NOW seq 281 flags 0x0F chamber 51.5F age 0 ms valve 275 mV press 4741888
+23:18:05.144 15314 ms ESP-NOW seq 282 flags 0x0F chamber 51.3F age 0 ms valve 277 mV press 4741798
+23:18:06.234 16404 ms ESP-NOW seq 283 flags 0x0F chamber 52.4F age 0 ms valve 277 mV press 4741789
+23:18:07.320 17490 ms ESP-NOW seq 284 flags 0x0F chamber 51.5F age 0 ms valve 276 mV press 4741922
+23:18:08.407 18577 ms ESP-NOW seq 285 flags 0x0F chamber 51.5F age 0 ms valve 273 mV press 4741644
+23:18:09.491 19661 ms ESP-NOW seq 286 flags 0x0F chamber 52.2F age 0 ms valve 272 mV press 4741752
+23:18:10.576 20746 ms ESP-NOW seq 287 flags 0x0F chamber 52.0F age 0 ms valve 275 mV press 4741859
+23:18:11.661 21831 ms ESP-NOW seq 288 flags 0x0F chamber 52.2F age 0 ms valve 277 mV press 4741859
+23:18:12.747 22917 ms ESP-NOW seq 289 flags 0x0F chamber 51.3F age 0 ms valve 277 mV press 4741814
+23:18:13.916 24086 ms ESP-NOW seq 290 flags 0x0F chamber 52.0F age 0 ms valve 274 mV press 4741757
+23:18:14.919 25089 ms ESP-NOW seq 291 flags 0x0F chamber 51.0F age 0 ms valve 273 mV press 4741746
+23:18:16.009 26179 ms ESP-NOW seq 292 flags 0x0F chamber 52.0F age 0 ms valve 273 mV press 4741795
+23:18:17.094 27264 ms ESP-NOW seq 293 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741761
+23:18:18.176 28346 ms ESP-NOW seq 294 flags 0x0F chamber 51.7F age 0 ms valve 277 mV press 4741729
+23:18:19.266 29436 ms ESP-NOW seq 295 flags 0x0F chamber 51.5F age 0 ms valve 276 mV press 4741751
+23:18:20.351 30521 ms ESP-NOW seq 296 flags 0x0F chamber 51.5F age 0 ms valve 274 mV press 4741791
+23:18:21.436 31606 ms ESP-NOW seq 297 flags 0x0F chamber 52.0F age 0 ms valve 272 mV press 4741718
+23:18:22.114 Vent baseline learned: 4741847 raw (avg of 1)
+23:18:22.522 32692 ms ESP-NOW seq 298 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741855
+23:18:23.608 33779 ms ESP-NOW seq 299 flags 0x0F chamber 52.2F age 0 ms valve 276 mV press 4741821
+23:18:24.694 34864 ms ESP-NOW seq 300 flags 0x0F chamber 52.0F age 0 ms valve 278 mV press 4741735
+23:18:25.778 35948 ms ESP-NOW seq 301 flags 0x0F chamber 52.0F age 0 ms valve 273 mV press 4741753
+23:18:26.965 37135 ms ESP-NOW seq 302 flags 0x0F chamber 51.7F age 0 ms valve 267 mV press 4741705
+23:18:27.961 38132 ms ESP-NOW seq 303 flags 0x0F chamber 51.7F age 0 ms valve 273 mV press 4741638
+23:18:29.035 39206 ms ESP-NOW seq 304 flags 0x0F chamber 52.0F age 0 ms valve 275 mV press 4741680
+23:18:30.126 40296 ms ESP-NOW seq 305 flags 0x0F chamber 52.0F age 0 ms valve 276 mV press 4741568
+23:18:31.213 41382 ms ESP-NOW seq 306 flags 0x0F chamber 52.0F age 0 ms valve 275 mV press 4741733
+23:18:32.293 42464 ms ESP-NOW seq 307 flags 0x0F chamber 51.7F age 0 ms valve 273 mV press 4741661
+23:18:33.384 43554 ms ESP-NOW seq 308 flags 0x0F chamber 51.3F age 0 ms valve 273 mV press 4741682
+23:18:34.468 44638 ms ESP-NOW seq 309 flags 0x0F chamber 51.0F age 0 ms valve 274 mV press 4741729
+23:18:35.553 45723 ms ESP-NOW seq 310 flags 0x0F chamber 51.3F age 0 ms valve 276 mV press 4741749
+23:18:36.638 46809 ms ESP-NOW seq 311 flags 0x0F chamber 51.7F age 0 ms valve 278 mV press 4741593
+23:18:37.725 47896 ms ESP-NOW seq 312 flags 0x0F chamber 52.2F age 0 ms valve 276 mV press 4741665
+23:18:38.811 48981 ms ESP-NOW seq 313 flags 0x0F chamber 52.2F age 0 ms valve 274 mV press 4741573
+23:18:39.985 50155 ms ESP-NOW seq 314 flags 0x0F chamber 52.0F age 0 ms valve 271 mV press 4741731
+23:18:41.009 51179 ms ESP-NOW seq 315 flags 0x0F chamber 52.2F age 0 ms valve 275 mV press 4741653
+23:18:42.068 52238 ms ESP-NOW seq 316 flags 0x0F chamber 52.2F age 0 ms valve 277 mV press 4741732
+23:18:43.158 53328 ms ESP-NOW seq 317 flags 0x0F chamber 51.3F age 0 ms valve 277 mV press 4741656
+23:18:44.243 54413 ms ESP-NOW seq 318 flags 0x0F chamber 51.0F age 0 ms valve 275 mV press 4741768
+23:18:45.328 55499 ms ESP-NOW seq 319 flags 0x0F chamber 51.5F age 0 ms valve 273 mV press 4741745
+23:18:46.415 56586 ms ESP-NOW seq 320 flags 0x0F chamber 51.5F age 0 ms valve 272 mV press 4741685
+23:18:47.501 57671 ms ESP-NOW seq 321 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741703
+23:18:48.586 58756 ms ESP-NOW seq 322 flags 0x0F chamber 52.4F age 0 ms valve 276 mV press 4741566
+23:18:49.671 59841 ms ESP-NOW seq 323 flags 0x0F chamber 51.3F age 0 ms valve 275 mV press 4741621
+23:18:50.758 60928 ms ESP-NOW seq 324 flags 0x0F chamber 51.3F age 0 ms valve 273 mV press 4741723
+23:18:51.843 62013 ms ESP-NOW seq 325 flags 0x0F chamber 52.0F age 0 ms valve 271 mV press 4741776
+23:18:53.032 63202 ms ESP-NOW seq 326 flags 0x0F chamber 51.3F age 0 ms valve 272 mV press 4741751
+23:18:54.056 64226 ms ESP-NOW seq 327 flags 0x0F chamber 51.5F age 0 ms valve 274 mV press 4741608
+23:18:55.100 65270 ms ESP-NOW seq 328 flags 0x0F chamber 53.8F age 0 ms valve 277 mV press 4741669
+23:18:56.190 66360 ms ESP-NOW seq 329 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741586
+23:18:57.275 67445 ms ESP-NOW seq 330 flags 0x0F chamber 51.3F age 0 ms valve 273 mV press 4741691
+23:18:58.359 68530 ms ESP-NOW seq 331 flags 0x0F chamber 51.7F age 0 ms valve 273 mV press 4741659
+23:18:59.445 69615 ms ESP-NOW seq 332 flags 0x0F chamber 52.0F age 0 ms valve 275 mV press 4741658
+23:19:00.532 70702 ms ESP-NOW seq 333 flags 0x0F chamber 52.0F age 0 ms valve 277 mV press 4741736
+23:19:01.617 71787 ms ESP-NOW seq 334 flags 0x0F chamber 52.0F age 0 ms valve 277 mV press 4741695
+23:19:02.702 72872 ms ESP-NOW seq 335 flags 0x0F chamber 52.0F age 0 ms valve 281 mV press 4741757
+23:19:03.792 73962 ms ESP-NOW seq 336 flags 0x0F chamber 51.3F age 0 ms valve 267 mV press 4741715
+23:19:04.878 75048 ms ESP-NOW seq 337 flags 0x0F chamber 52.0F age 0 ms valve 274 mV press 4741688
+23:19:06.077 76248 ms ESP-NOW seq 338 flags 0x0F chamber 51.0F age 0 ms valve 271 mV press 4741740
+23:19:07.075 77245 ms ESP-NOW seq 339 flags 0x0F chamber 52.0F age 0 ms valve 276 mV press 4741667
+23:19:08.133 78304 ms ESP-NOW seq 340 flags 0x0F chamber 53.1F age 0 ms valve 276 mV press 4741755
+23:19:09.220 79390 ms ESP-NOW seq 341 flags 0x0F chamber 51.5F age 0 ms valve 274 mV press 4741706
+23:19:10.306 80477 ms ESP-NOW seq 342 flags 0x0F chamber 52.0F age 0 ms valve 272 mV press 4741660
+23:19:11.391 81562 ms ESP-NOW seq 343 flags 0x0F chamber 52.0F age 0 ms valve 271 mV press 4741684
+23:19:12.476 82647 ms ESP-NOW seq 344 flags 0x0F chamber 51.7F age 0 ms valve 275 mV press 4741707
+23:19:13.561 83732 ms ESP-NOW seq 345 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741826
+23:19:14.647 84818 ms ESP-NOW seq 346 flags 0x0F chamber 52.0F age 0 ms valve 275 mV press 4741744
+23:19:15.735 85905 ms ESP-NOW seq 347 flags 0x0F chamber 52.0F age 0 ms valve 274 mV press 4741765
+23:19:16.825 86995 ms ESP-NOW seq 348 flags 0x0F chamber 51.5F age 0 ms valve 273 mV press 4741852
+23:19:17.908 88079 ms ESP-NOW seq 349 flags 0x0F chamber 51.7F age 0 ms valve 272 mV press 4741857
+23:19:18.994 89164 ms ESP-NOW seq 350 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741856
+23:19:20.122 90293 ms ESP-NOW seq 351 flags 0x0F chamber 51.3F age 0 ms valve 277 mV press 4741797
+23:19:21.166 91337 ms ESP-NOW seq 352 flags 0x0F chamber 51.7F age 0 ms valve 275 mV press 4741786
+23:19:22.251 92422 ms ESP-NOW seq 353 flags 0x0F chamber 51.5F age 0 ms valve 274 mV press 4741785
+23:19:23.336 93507 ms ESP-NOW seq 354 flags 0x0F chamber 51.3F age 0 ms valve 269 mV press 4741798
+23:19:24.427 94598 ms ESP-NOW seq 355 flags 0x0F chamber 52.0F age 0 ms valve 273 mV press 4741735
+23:19:25.509 95679 ms ESP-NOW seq 356 flags 0x0F chamber 51.7F age 0 ms valve 275 mV press 4741761
+23:19:26.598 96769 ms ESP-NOW seq 357 flags 0x0F chamber 51.5F age 0 ms valve 276 mV press 4741808
+23:19:27.683 97854 ms ESP-NOW seq 358 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741829
+23:19:28.768 98939 ms ESP-NOW seq 359 flags 0x0F chamber 51.5F age 0 ms valve 272 mV press 4741757
+23:19:29.854 100025 ms ESP-NOW seq 360 flags 0x0F chamber 51.5F age 0 ms valve 271 mV press 4741705
+23:19:30.941 101112 ms ESP-NOW seq 361 flags 0x0F chamber 51.3F age 0 ms valve 273 mV press 4741744
+23:19:32.026 102197 ms ESP-NOW seq 362 flags 0x0F chamber 51.0F age 0 ms valve 277 mV press 4741790
+23:19:33.171 103342 ms ESP-NOW seq 363 flags 0x0F chamber 51.7F age 0 ms valve 277 mV press 4741769
+23:19:34.200 104370 ms ESP-NOW seq 364 flags 0x0F chamber 52.0F age 0 ms valve 276 mV press 4741751
+23:19:35.284 105455 ms ESP-NOW seq 365 flags 0x0F chamber 50.8F age 0 ms valve 273 mV press 4741757
+23:19:36.369 106540 ms ESP-NOW seq 366 flags 0x0F chamber 51.3F age 0 ms valve 272 mV press 4741806
+23:19:37.454 107625 ms ESP-NOW seq 367 flags 0x0F chamber 51.0F age 0 ms valve 276 mV press 4741791
+23:19:38.540 108711 ms ESP-NOW seq 368 flags 0x0F chamber 51.0F age 0 ms valve 276 mV press 4741776
+23:19:39.627 109798 ms ESP-NOW seq 369 flags 0x0F chamber 51.5F age 0 ms valve 277 mV press 4741757
+23:19:40.713 110883 ms ESP-NOW seq 370 flags 0x0F chamber 52.0F age 0 ms valve 274 mV press 4741842
+23:19:41.803 111973 ms ESP-NOW seq 371 flags 0x0F chamber 52.0F age 0 ms valve 271 mV press 4741680
+23:19:42.886 113057 ms ESP-NOW seq 372 flags 0x0F chamber 52.2F age 0 ms valve 267 mV press 4741745
+23:19:43.972 114143 ms ESP-NOW seq 373 flags 0x0F chamber 51.3F age 0 ms valve 274 mV press 4741889
+23:19:45.059 115230 ms ESP-NOW seq 374 flags 0x0F chamber 52.2F age 0 ms valve 276 mV press 4741840
+23:19:46.189 116360 ms ESP-NOW seq 375 flags 0x0F chamber 51.5F age 0 ms valve 275 mV press 4741904
+23:19:47.229 117400 ms ESP-NOW seq 376 flags 0x0F chamber 53.1F age 0 ms valve 273 mV press 4741825
+23:19:48.317 118487 ms ESP-NOW seq 377 flags 0x0F chamber 52.4F age 0 ms valve 274 mV press 4741836
+23:19:49.402 119572 ms ESP-NOW seq 378 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741790
+23:19:50.491 120662 ms ESP-NOW seq 379 flags 0x0F chamber 51.0F age 0 ms valve 277 mV press 4741837
+23:19:51.576 121747 ms ESP-NOW seq 380 flags 0x0F chamber 51.7F age 0 ms valve 278 mV press 4741794
+23:19:52.658 122829 ms ESP-NOW seq 381 flags 0x0F chamber 51.7F age 0 ms valve 276 mV press 4741965
+23:19:53.748 123919 ms ESP-NOW seq 382 flags 0x0F chamber 52.0F age 0 ms valve 267 mV press 4742003
+23:19:54.833 125004 ms ESP-NOW seq 383 flags 0x0F chamber 51.5F age 0 ms valve 272 mV press 4741967
+23:19:55.918 126089 ms ESP-NOW seq 384 flags 0x0F chamber 52.0F age 0 ms valve 278 mV press 4741903
+23:19:57.005 127176 ms ESP-NOW seq 385 flags 0x0F chamber 51.5F age 0 ms valve 277 mV press 4741822
+23:19:58.091 128262 ms ESP-NOW seq 386 flags 0x0F chamber 53.1F age 0 ms valve 278 mV press 4741785
+23:19:59.238 129408 ms ESP-NOW seq 387 flags 0x0F chamber 51.5F age 0 ms valve 275 mV press 4741904
+23:20:00.261 130432 ms ESP-NOW seq 388 flags 0x0F chamber 52.0F age 0 ms valve 273 mV press 4741789
+23:20:01.348 131519 ms ESP-NOW seq 389 flags 0x0F chamber 51.7F age 0 ms valve 273 mV press 4741977
+23:20:02.433 132604 ms ESP-NOW seq 390 flags 0x0F chamber 53.4F age 0 ms valve 276 mV press 4741991
+23:20:03.518 133689 ms ESP-NOW seq 391 flags 0x0F chamber 51.5F age 0 ms valve 277 mV press 4741908
+23:20:04.608 134779 ms ESP-NOW seq 392 flags 0x0F chamber 51.3F age 0 ms valve 277 mV press 4742011
+23:20:05.695 135865 ms ESP-NOW seq 393 flags 0x0F chamber 51.5F age 0 ms valve 276 mV press 4742045
+23:20:06.776 136947 ms ESP-NOW seq 394 flags 0x0F chamber 53.4F age 0 ms valve 271 mV press 4742108
+23:20:07.866 138037 ms ESP-NOW seq 395 flags 0x0F chamber 52.2F age 0 ms valve 274 mV press 4742071
+23:20:08.950 139121 ms ESP-NOW seq 396 flags 0x0F chamber 52.0F age 0 ms valve 276 mV press 4742030
+23:20:10.035 140206 ms ESP-NOW seq 397 flags 0x0F chamber 51.3F age 0 ms valve 279 mV press 4742051
+23:20:11.121 141292 ms ESP-NOW seq 398 flags 0x0F chamber 51.5F age 0 ms valve 278 mV press 4742102
+23:20:12.285 142456 ms ESP-NOW seq 399 flags 0x0F chamber 51.0F age 0 ms valve 274 mV press 4742099
+23:20:13.293 143464 ms ESP-NOW seq 400 flags 0x0F chamber 51.7F age 0 ms valve 274 mV press 4742134
+23:20:14.378 144549 ms ESP-NOW seq 401 flags 0x0F chamber 51.5F age 0 ms valve 273 mV press 4742154
+23:20:15.469 145640 ms ESP-NOW seq 402 flags 0x0F chamber 50.8F age 0 ms valve 276 mV press 4742206
+23:20:16.550 146721 ms ESP-NOW seq 403 flags 0x0F chamber 51.0F age 0 ms valve 279 mV press 4741931
+23:20:17.640 147811 ms ESP-NOW seq 404 flags 0x0F chamber 52.0F age 0 ms valve 277 mV press 4741995
+23:20:18.725 148896 ms ESP-NOW seq 405 flags 0x0F chamber 51.7F age 0 ms valve 274 mV press 4742020
+23:20:19.810 149981 ms ESP-NOW seq 406 flags 0x0F chamber 52.0F age 0 ms valve 272 mV press 4742028
+23:20:20.011 [capture end]
