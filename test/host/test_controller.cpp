@@ -744,7 +744,7 @@ static void testWetProbeDoesNotFalseSaturate() {
     runFor(p, 5000);
     EXPECT(stateMachine.command(Command::START_DRYER_MANUAL), "manual start refused");
     runFor(p, 5000);
-    p.toWater = 3;  // condensation on the chip
+    p.toWater = 2;  // condensation one 2-pulse burn-off can clear
     runFor(p, 150000);
     EXPECT(!idle(), "a wet probe stopped the dryer");
     EXPECT(!logHas("Stop: S03"), "false saturation stop");
