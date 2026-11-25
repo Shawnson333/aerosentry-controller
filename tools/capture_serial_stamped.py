@@ -39,7 +39,14 @@ buffer = b""
 while time.monotonic() < deadline:
     if port is None:
         try:
-            port = serial.Serial(args.port, 115200, timeout=0.2)
+            # Open with DTR and RTS low so opening the port can never reset the board.
+            port = serial.Serial()
+            port.port = args.port
+            port.baudrate = 115200
+            port.timeout = 0.2
+            port.dtr = False
+            port.rts = False
+            port.open()
             emit(f"{stamp()} [serial connected]")
             if reset_pending:
                 reset_pending = False

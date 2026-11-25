@@ -817,3 +817,13 @@ in 2 min and 104 F in 5 min; 175 F start rose 43 F in 2 min; 222 F start rose 17
   and the log shows no event near them (only ESP-NOW packets every 1.085 s, which do not match the irregular dims).
   A dim that sweeps top to bottom on video is most likely one bad frame seen through the camera's rolling shutter,
   i.e. a PSRAM-bandwidth underrun of the RGB panel. Cause still unknown. Next test: `DISPLAY_PCLK_HZ` 12 MHz.
+
+## 2026-11-25 vent check: reference before every pulse, S20 and S21 (nothing flashed yet)
+
+- Live recharge on 2026-11-24/25 stopped twice with S09 (steps 10,185 and 14,649). Real rise of each pulse against the
+  reading just before it was 21,000-28,000 (earlier runs 70,000-130,000). The learned average baseline had come from one
+  sample and sat below the true idle level, so steps looked even smaller.
+- Now: each pulse is judged against the median of the pump-off readings from the last 6 s (needs 3, agreeing within 8,000).
+  No steady reference means the pump does not run (S21 after 2 min, failure cool down). A rise of 500,000 or more is S20
+  VENT_BLOCKED (the finger test gave 1.65 million). The 20,000 limit is unchanged.
+- **Unverified:** not run on hardware. Flow being ~3x weaker than before is unexplained.

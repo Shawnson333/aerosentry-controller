@@ -1,7 +1,7 @@
 # Bench test checklist (v1.0.0-beta.1)
 
-Everything below is built and passes the host simulation (`python tools/host_test.py`, 37 scenarios,
-169 checks). Flashed 2026-11-24 (controller and sensor node, both read back and verified); sections 0 and 1
+Everything below is built and passes the host simulation (`python tools/host_test.py`, 40 scenarios,
+185 checks). Flashed 2026-11-24 (controller and sensor node, both read back and verified); sections 0 and 1
 are done, the rest is open. Work top to bottom. Record each result (date,
 pass/fail, log file) in the Result column or in `docs/PROJECT_NOTES.md`.
 
@@ -99,6 +99,8 @@ result is the click and the relay LED.
 | 7.4 | Power off the sensor node during a pulse at temperature | Pump off within about 3 s (`Recharge pulse cut short`), then `Recharge failure SENSOR_NODE_SILENT` **once**, status line "Fault cool down", heater off, valves open, fan on; ends **S04** after 2 h (no chamber reading) | |
 | 7.5 | Power off the sensor node for 10 s during a pulse | `Sensors back after ...`, no failure, the cut pulse is re-run | |
 | 7.6b | Heater response check (S19) | In a normal recharge: no `Heater response fault` line. (Do not test by disabling the heater without a plan; the simulator covers dead-at-start and dies-while-holding.) | |
+| 7.7 | Vent reference lines | Before every pulse a `Vent reference N raw (median of 4, spread ...)` line; the pulse line shows step well above 20,000 | |
+| 7.8 | Hold a finger over the vent tube during a pulse | `BLOCKED`, immediate **S20** (this is what 2026-11-25 showed, as a huge rise) | |
 | 7.6 | Each recharge pulse, cool down pulse and safety pulse | `Vent pressure raw ... OK ... recharge pulse` / `cool down pulse` / `safety pulse` lines, steps well above 20,000 | |
 
 ## 8. Full runs (v1 exit criteria)
@@ -116,9 +118,11 @@ result is the click and the relay LED.
   test needs a written plan (for example, a resistor in place of the thermistor) before anyone tries it.
 - Heat-up timeout (1 h, user kept it 2026-11-24) and the heater response check (S19: 10 F within 4 min of
   heater-on time, from bench heat-up curves) are tested in the simulator only.
-- Vent baseline is a running average over the whole recharge. In the 2026-11-22 log it drifted about 23,000
-  counts in the first hour. Steps are 70,000-130,000, so there is margin, but watch `Vent baseline` against the
-  raw idle reading late in 8.1. A drift down would shrink the measured step.
+- Vent check (2026-11-25): each pulse is judged against the median of the pump-off readings from the 6 s before it
+  (no running average). Bench 2026-11-25 showed real rises of only 21,000-28,000 counts per pulse, against
+  70,000-130,000 in earlier runs, so flow is weak and the 20,000 limit has little margin. Cause not found yet
+  (valves, tubing, pump or pressure tap are the places to look). A single high glitch reading would still pass
+  the check (the peak of the pulse is used); not addressed.
 - The XL9535 keeps its outputs through an ESP32 reset (assumed; 4.1 shows how long the relays stay on).
 - Valve coil current check stays disabled until the shunt is wired.
 - Desiccant amount (4 lb vs about 2 lb) is still open.

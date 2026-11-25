@@ -72,6 +72,8 @@ static const StopText STOP_TEXTS[] = {
     /* 17 */ {"RECHARGE_MAX_TIME",  "Recharge reached its time limit.",        "The desiccant may not be fully dry. Consider another Recharge."},
     /* 18 */ {"CONTROLLER_RESTART", "Controller restarted unexpectedly.",      "All outputs were off at restart. Check the unit before starting again."},
     /* 19 */ {"HEATER_NO_RISE",     "Heater not heating.",                     "Check the heater mat, its fuse, its relay (K3) and the thermistor."},
+    /* 20 */ {"VENT_BLOCKED",       "Vent line blocked.",                      "Check the vent line and outlet for a blockage or a closed valve."},
+    /* 21 */ {"VENT_UNSTABLE",      "Vent pressure not steady.",               "Check the pressure module, its tube and cable, and the vent line."},
 };
 
 static const StopText& stopText(StopReason reason) {
@@ -132,6 +134,14 @@ static void defaultStopDetail(StopReason reason, char* buf, size_t size) {
         case StopReason::HEATER_NO_RISE:
             snprintf(buf, size, "Chamber rose less than %.0f F in %lu min of heater-on time.",
                      HEATER_MIN_RISE_F, (unsigned long)(HEATER_RESPONSE_MS / 60000UL));
+            break;
+        case StopReason::VENT_BLOCKED:
+            snprintf(buf, size, "A pump pulse raised the vent pressure more than %ld counts.",
+                     (long)VENT_PRESSURE_BLOCKED_STEP);
+            break;
+        case StopReason::VENT_UNSTABLE:
+            snprintf(buf, size, "The vent pressure was not steady for %lu s, so no pump pulse could be checked.",
+                     (unsigned long)(VENT_REF_WAIT_MAX_MS / 1000UL));
             break;
         case StopReason::SAFETY_FAILED:
             snprintf(buf, size, "To-Engine was above %.0f%% after the cool down.", RECHARGE_TARGET_RH);
@@ -234,19 +244,20 @@ StateMachine::StateMachine()
     , _rechargeTimedOut(false)
     , _sensorLost(false)
     , _sensorLostSinceMs(0)
-    , _ventBaseline(0)
-    , _ventBaselineValid(false)
-    , _ventLearnStartMs(0)
+    , _ventRef(0)
+    , _ventRefFrozen(false)
+    , _ventRefWaitStartMs(0)
     , _ventGoodPulses(0)
     , _ventBadPulses(0)
-    , _ventAmbientSum(0.0)
-    , _ventAmbientCount(0)
-    , _ventLastSampleMs(0)
+    , _ventRefCount(0)
+    , _ventRefHead(0)
+    , _ventRefLastStamp(0)
     , _ventPulsePeak(0)
     , _ventPulseSamples(0)
     , _ventPulseLastStamp(0)
     , _ventLastStep(0)
     , _ventLastStepValid(false)
+    , _ventLastRef(0)
     , _cooldownWindow(UINT32_MAX)
     , _cooldownPulseRun(false)
     , _valveNoCurrentCount(0)
@@ -292,9 +303,13 @@ void StateMachine::begin() {
     _rechargeFailureReason = StopReason::NONE;
     _chamberReachedTarget = false;
     _rechargeTimedOut = false;
-    _ventBaseline = 0;
-    _ventBaselineValid = false;
-    _ventLearnStartMs = 0;
+    _ventRef = 0;
+    _ventRefFrozen = false;
+    _ventRefWaitStartMs = 0;
+    _ventRefCount = 0;
+    _ventRefHead = 0;
+    _ventRefLastStamp = 0;
+    _ventLastRef = 0;
     _ventGoodPulses = 0;
     _ventBadPulses = 0;
     _pulseCount = 0;
@@ -353,7 +368,7 @@ bool StateMachine::handleCommand() {
 
 void StateMachine::update() {
     checkThermal();
-    learnVentBaseline();
+    trackVentReference();
     if (handleCommand()) {
         updateFan();
         applyOutputs();
@@ -530,14 +545,15 @@ void StateMachine::enterMode(SystemMode newMode) {
             _rechargeFailureReason = StopReason::NONE;
             _chamberReachedTarget = false;
             _rechargeTimedOut = false;
-            _ventBaseline = 0;
-            _ventBaselineValid = false;
-            _ventLearnStartMs = 0;
+            _ventRef = 0;
+            _ventRefFrozen = false;
+            _ventRefWaitStartMs = 0;
+            _ventRefCount = 0;
+            _ventRefHead = 0;
+            _ventRefLastStamp = 0;
+            _ventLastRef = 0;
             _ventGoodPulses = 0;
             _ventBadPulses = 0;
-            _ventAmbientSum = 0.0;
-            _ventAmbientCount = 0;
-            _ventLastSampleMs = 0;
             _ventPulsePeak = 0;
             _ventPulseSamples = 0;
             _ventPulseLastStamp = 0;
@@ -767,16 +783,15 @@ void StateMachine::updateRecharge(bool sensorsOk) {
             _pumpOn = false;
             if (chamberReady() &&
                 celsiusToFahrenheit(sensors.chamberTemp) >= (float)RECHARGE_TARGET_TEMP_F) {
-                // The first pulse is judged against the vent baseline, so it must be
-                // learned first. It takes 30 s and heat-up takes minutes, so this only
-                // waits when a recharge starts on an already hot chamber.
-                if (!ventBaselineReady()) break;
                 _chamberReachedTarget = true;
                 _chamberReachedMs = millis();  // the long-pulse hour counts from here, not from start
                 setRechargePhase(RechargePhase::PULSE_ON);
             }
             break;
         case RechargePhase::PULSE_ON: {
+            // The pulse is judged against the pump-off pressure just before it. No
+            // steady reference, no pulse: the pump stays off (fails closed after 2 min).
+            if (!_ventRefFrozen && !beginVentPulse()) break;
             _pumpOn = true;
             trackVentPulse();  // highest vent pressure at ANY point in this pulse
             // Pump on time: 10 s for the first hour after the chamber first reaches
@@ -887,6 +902,7 @@ void StateMachine::updateRecharge(bool sensorsOk) {
         }
         case RechargePhase::SAFETY_PULSE: {
             _heaterOn = false;
+            if (!_ventRefFrozen && !beginVentPulse()) break;
             _pumpOn = true;
             trackVentPulse();
             if (phaseElapsed() < SAFETY_PULSE_MS) break;
@@ -1010,9 +1026,9 @@ void StateMachine::runCooldownPulse(uint32_t cooldownMs) {
     if (window != _cooldownWindow) {
         _cooldownWindow = window;
         resetVentPulse();
-        _cooldownPulseRun = inPulse && ventCheckReady();
+        _cooldownPulseRun = inPulse && freezeVentReference();
         if (inPulse && !_cooldownPulseRun) {
-            Serial.println(F("Cool down pulse skipped - no vent pressure to confirm the valves"));
+            Serial.println(F("Cool down pulse skipped - no steady vent pressure reference to confirm the valves"));
         }
     }
     if (!_cooldownPulseRun) {
@@ -1192,75 +1208,90 @@ void StateMachine::rechargeFailureCooldown(StopReason reason) {
     }
 }
 
-/* Learn the idle vent pressure while the pump is not running. The baseline
-   must be taken with the line un-pressurised; a pump-on reading would make
-   every later pulse look like "no flow". Called every loop while the vent
-   line is quiet.
-
-   Ambient-averaged baseline (2026-11-20): sample every 30 s while pump OFF
-   (heating and inter-pulse waits). The baseline is the running AVERAGE of
-   those samples, not the lowest. Re-learned on every recharge cycle, and
-   updated between pulses, so barometric drift cannot fake a good step.
-   The first sample seeds the sum; later samples are added to it.
-   Only fresh readings count (2026-11-24): a silent sensor node used to keep
-   feeding its last value into the average. */
-void StateMachine::learnVentBaseline() {
+/* Store pump-off vent readings (2026-11-25). Every fresh pressure packet that
+   arrives while the pump is off goes into a small ring; the median of the ones
+   from the last VENT_REF_WINDOW_MS becomes the reference for the next pulse
+   (freezeVentReference). The old running average could sit 15,000 counts below
+   the real idle level once the chamber was hot, which made good pulses look
+   short. Nothing is stored while the pump runs or while a pulse is prepared. */
+void StateMachine::trackVentReference() {
 #if VENT_PRESSURE_CHECK_ENABLED
-    if (_pumpOn) return;
+    if (_pumpOn || _ventRefFrozen) return;
     if (!pressureReady()) return;
-    if (_ventBaselineValid) {
-        if (_ventLastSampleMs != 0 &&
-            millis() - _ventLastSampleMs < VENT_PRESSURE_AMBIENT_SAMPLE_MS) return;
-        _ventLastSampleMs = millis();
-        _ventAmbientSum += (double)sensors.ventPressureRaw;
-        _ventAmbientCount++;
-        _ventBaseline = (int32_t)(_ventAmbientSum / (double)_ventAmbientCount);
-        return;
-    }
-    if (_ventLearnStartMs == 0) {
-        _ventLearnStartMs = millis();
-        _ventAmbientSum = 0.0;
-        _ventAmbientCount = 0;
-        _ventLastSampleMs = millis();
-        _ventAmbientSum += (double)sensors.ventPressureRaw;
-        _ventAmbientCount++;
-        _ventBaseline = (int32_t)(_ventAmbientSum / (double)_ventAmbientCount);
-        Serial.printf("Vent ambient sample 1: %ld raw (count %lu)\n",
-                      (long)sensors.ventPressureRaw, (unsigned long)_ventAmbientCount);
-        return;
-    }
-    if (millis() - _ventLearnStartMs < VENT_PRESSURE_LEARN_MS) {
-        if (_ventLastSampleMs != 0 &&
-            millis() - _ventLastSampleMs < VENT_PRESSURE_AMBIENT_SAMPLE_MS) return;
-        _ventLastSampleMs = millis();
-        _ventAmbientSum += (double)sensors.ventPressureRaw;
-        _ventAmbientCount++;
-        _ventBaseline = (int32_t)(_ventAmbientSum / (double)_ventAmbientCount);
-        Serial.printf("Vent ambient sample %lu: %ld raw (avg %ld)\n",
-                      (unsigned long)_ventAmbientCount, (long)sensors.ventPressureRaw,
-                      (long)_ventBaseline);
-        return;
-    }
-    _ventBaselineValid = true;
-    Serial.printf("Vent baseline learned: %ld raw (avg of %lu)\n",
-                  (long)_ventBaseline, (unsigned long)_ventAmbientCount);
+    if (sensors.pressureTimestamp == _ventRefLastStamp) return;  // same packet as before
+    _ventRefLastStamp = sensors.pressureTimestamp;
+    _ventRefValue[_ventRefHead] = sensors.ventPressureRaw;
+    _ventRefMs[_ventRefHead] = millis();
+    _ventRefHead = (uint8_t)((_ventRefHead + 1) % VENT_REF_RING);
+    if (_ventRefCount < VENT_REF_RING) _ventRefCount++;
 #endif
 }
 
-/* True when a pump pulse can be judged by the vent check: the pressure
-   reading is fresh and the ambient baseline is learned. Always true with
-   the check compiled out. */
-bool StateMachine::ventCheckReady() const {
+/* Take the reference for the pulse about to start: the median of the recent
+   pump-off readings, provided there are enough of them and they agree. False
+   means the pulse must not start. Always true with the check compiled out. */
+bool StateMachine::freezeVentReference() {
 #if VENT_PRESSURE_CHECK_ENABLED
-    return pressureReady() && _ventBaselineValid;
+    if (!pressureReady()) return false;
+    const uint32_t now = millis();
+    int32_t values[VENT_REF_RING];
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < _ventRefCount; ++i) {
+        if (now - _ventRefMs[i] <= VENT_REF_WINDOW_MS) values[n++] = _ventRefValue[i];
+    }
+    if (n < VENT_REF_MIN_SAMPLES) return false;
+    for (uint8_t i = 1; i < n; ++i) {  // insertion sort, n <= 8
+        const int32_t v = values[i];
+        int8_t j = (int8_t)i - 1;
+        while (j >= 0 && values[j] > v) { values[j + 1] = values[j]; j--; }
+        values[j + 1] = v;
+    }
+    const int32_t spread = values[n - 1] - values[0];
+    if (spread > VENT_REF_MAX_SPREAD) return false;
+    _ventRef = values[n / 2];
+    _ventRefFrozen = true;
+    Serial.printf("Vent reference %ld raw (median of %u, spread %ld)\n",
+                  (long)_ventRef, (unsigned)n, (long)spread);
+    return true;
 #else
     return true;
 #endif
 }
 
-bool StateMachine::ventBaselineReady() const {
+/* Start of a recharge or safety pulse: take the reference, or keep the pump off
+   and wait. A reference that stays unusable for VENT_REF_WAIT_MAX_MS fails the
+   recharge closed (S21): no pulse that cannot be checked is ever run. The pulse
+   timer starts when the reference is taken. */
+bool StateMachine::beginVentPulse() {
 #if VENT_PRESSURE_CHECK_ENABLED
-    return _ventBaselineValid;
+    if (freezeVentReference()) {
+        if (_ventRefWaitStartMs != 0) Serial.println(F("Vent pressure steady - pulse starting"));
+        _ventRefWaitStartMs = 0;
+        _phaseStartTime = millis();
+        return true;
+    }
+    _pumpOn = false;
+    const uint32_t now = millis();
+    if (_ventRefWaitStartMs == 0) {
+        _ventRefWaitStartMs = now;
+        Serial.println(F("Vent pressure not steady enough for a reference - pulse waits"));
+    }
+    if (now - _ventRefWaitStartMs >= VENT_REF_WAIT_MAX_MS) {
+        _ventRefWaitStartMs = 0;
+        Serial.println(F("Vent pressure never steadied - failing closed"));
+        rechargeFailureCooldown(StopReason::VENT_UNSTABLE);
+    }
+    return false;
+#else
+    return true;
+#endif
+}
+
+/* True while a pulse is running with its reference taken and a fresh reading.
+   Always true with the check compiled out. */
+bool StateMachine::ventCheckReady() const {
+#if VENT_PRESSURE_CHECK_ENABLED
+    return pressureReady() && _ventRefFrozen;
 #else
     return true;
 #endif
@@ -1268,6 +1299,7 @@ bool StateMachine::ventBaselineReady() const {
 
 /* Start a new pulse window: forget the peak and the sample count. */
 void StateMachine::resetVentPulse() {
+    _ventRefFrozen = false;
     _ventPulsePeak = 0;
     _ventPulseSamples = 0;
     _ventPulseLastStamp = 0;
@@ -1290,39 +1322,52 @@ void StateMachine::trackVentPulse() {
 
 /* Vent pressure verification. The pump draws air through the chamber and the
    dump valve sends the regen exhaust out the vent line. With the valve open
-   the vent line must show a pressure step against the idle baseline. No step
-   means the dump valve did not open, so the exhaust is not leaving the
-   system. This is a positive check on the mechanical valve position and does
-   not depend on humidity at all.
+   the vent line must show a pressure step against the pump-off reading taken
+   just before the pulse. No step means the dump valve did not open, so the
+   exhaust is not leaving the system. A step far too big means the line is
+   blocked (a closed valve or a pinched hose) and the pump is dead-heading.
+   This is a positive check on the mechanical valve position and does not
+   depend on humidity at all.
 
-   A pulse is good only if its peak rose to >= baseline + VENT_PRESSURE_MIN_STEP.
-   One bad pulse stops the cycle (VALVE_SUSPECT); each pulse stands alone, so a
-   good pulse never hides a later disconnect. A pulse with no pressure sample
-   at all is NOT judged and does not count: the callers never start a pulse
-   without fresh pressure, so this only happens when the reading drops out
-   mid-pulse, and the sensor-loss grace handles that (fails closed). */
+   A pulse is good only if its peak rose by VENT_PRESSURE_MIN_STEP or more and
+   less than VENT_PRESSURE_BLOCKED_STEP. One bad pulse stops the cycle
+   (VALVE_SUSPECT, or VENT_BLOCKED for a blocked line); each pulse stands
+   alone, so a good pulse never hides a later disconnect. A pulse with no
+   pressure sample at all is NOT judged and does not count: the callers never
+   start a pulse without fresh pressure, so this only happens when the reading
+   drops out mid-pulse, and the sensor-loss grace handles that (fails closed). */
 StateMachine::VentResult StateMachine::judgeVentPulse(const char* label) {
 #if VENT_PRESSURE_CHECK_ENABLED
-    if (_ventPulseSamples == 0 || !_ventBaselineValid) {
+    if (_ventPulseSamples == 0 || !_ventRefFrozen) {
         Serial.printf("Vent pressure: no samples in the %s pulse - not judged\n", label);
         resetVentPulse();
         return VentResult::NOT_JUDGED;
     }
-    const int32_t peakStep = _ventPulsePeak - _ventBaseline;
-    const bool sawStep = peakStep >= VENT_PRESSURE_MIN_STEP;
+    const int32_t peakStep = _ventPulsePeak - _ventRef;
+    const bool blocked = peakStep >= VENT_PRESSURE_BLOCKED_STEP;
+    const bool sawStep = peakStep >= VENT_PRESSURE_MIN_STEP && !blocked;
     if (sawStep) {
         if (_ventGoodPulses < 0xFFFF) _ventGoodPulses++;
     } else if (_ventBadPulses < 0xFFFF) {
         _ventBadPulses++;
     }
     _ventLastStep = peakStep;
+    _ventLastRef = _ventRef;
     _ventLastStepValid = true;
     Serial.printf("Vent pressure raw %ld peak %ld step %ld %s good %u bad %u %s pulse\n",
                   (long)sensors.ventPressureRaw, (long)_ventPulsePeak, (long)peakStep,
-                  sawStep ? "OK" : "NO FLOW", _ventGoodPulses, _ventBadPulses, label);
+                  sawStep ? "OK" : (blocked ? "BLOCKED" : "NO FLOW"), _ventGoodPulses, _ventBadPulses, label);
     resetVentPulse();
+    if (blocked) {
+        Serial.printf("Vent pressure fault - pulse rose %ld, line blocked\n", (long)peakStep);
+        char detail[96];
+        snprintf(detail, sizeof(detail), "Pump pulse raised the vent pressure %ld counts. More than %ld means the line is blocked.",
+                 (long)peakStep, (long)VENT_PRESSURE_BLOCKED_STEP);
+        stopWith(StopReason::VENT_BLOCKED, detail);
+        return VentResult::FAULT;
+    }
     if (!sawStep) {
-        Serial.printf("Vent pressure fault - pulse did not rise %ld over ambient\n",
+        Serial.printf("Vent pressure fault - pulse did not rise %ld over the reference\n",
                       (long)VENT_PRESSURE_MIN_STEP);
         char detail[96];
         snprintf(detail, sizeof(detail), "Pump pulse raised the vent pressure %ld counts. It needs %ld.",
@@ -1612,10 +1657,6 @@ const char* StateMachine::statusText() const {
                 case RechargePhase::HEATING:
                     if (chamberRetryPending()) {
                         snprintf(buf, sizeof(buf), "Chamber reading retry");
-                    } else if (chamberReady() &&
-                               celsiusToFahrenheit(sensors.chamberTemp) >= (float)RECHARGE_TARGET_TEMP_F &&
-                               !ventBaselineReady()) {
-                        snprintf(buf, sizeof(buf), "At %dF, learning vent baseline", RECHARGE_TARGET_TEMP_F);
                     } else if (chamberReady()) {
                         snprintf(buf, sizeof(buf), "%s %dF, now %.0fF",
                                  _heaterOn ? "Heating to" : "Holding",
@@ -1662,13 +1703,13 @@ const char* StateMachine::statusText() const {
 
 StateMachine stateMachine;
 
-int32_t StateMachine::ventBaseline() const { return _ventBaseline; }
-bool StateMachine::ventBaselineValid() const { return _ventBaselineValid; }
+int32_t StateMachine::ventBaseline() const { return _ventLastRef; }
+bool StateMachine::ventBaselineValid() const { return _ventLastStepValid; }
 bool StateMachine::ventLastStep(int32_t &step) const {
     step = _ventLastStep;
     return _ventLastStepValid;
 }
-uint32_t StateMachine::ventAmbientCount() const { return _ventAmbientCount; }
+uint32_t StateMachine::ventAmbientCount() const { return _ventRefCount; }
 uint16_t StateMachine::ventGoodPulses() const { return _ventGoodPulses; }
 uint16_t StateMachine::ventBadPulses() const { return _ventBadPulses; }
 

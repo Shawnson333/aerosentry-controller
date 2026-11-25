@@ -68,7 +68,7 @@ Every mode also ends on a thermal trip (S11-S13) and, after the 30 s grace, a se
 | Software thermal trip, chamber | `THERMAL_CHAMBER_F` = `RECHARGE_SOFT_OVERTEMP_F` in `include/config.h` | 255 F, stops everything, latched until it falls, blocks new starts |
 | Software thermal trip, humidity probes | `THERMAL_SENSOR_F` | 250 F on either SHT40 |
 | Mechanical thermal fuse | Hardware only. Nothing in firmware reads it. `RECHARGE_HARD_OVERTEMP_F` is documentation. | 266 F |
-| Vent pressure check | `judgeVentPulse()`, `ventSensorOk()` | Every pump pulse (recharge, cool down, safety) must reach ambient average + 20,000 counts, or stop with `VALVE_SUSPECT` (S09) at once. **Fails closed** (2026-11-24): no recharge start and no pump pulse without a fresh pressure reading; missing for 30 s in a recharge goes to the failure cool down with the pump off (S08). |
+| Vent pressure check | `judgeVentPulse()`, `ventSensorOk()` | Every pump pulse (recharge, cool down, safety) must reach the pump-off reference taken just before it + 20,000 counts, or stop with `VALVE_SUSPECT` (S09) at once; a rise of 500,000 or more stops with `VENT_BLOCKED` (S20); no steady reference for 2 min fails closed with `VENT_UNSTABLE` (S21). **Fails closed** (2026-11-24): no recharge start and no pump pulse without a fresh pressure reading; missing for 30 s in a recharge goes to the failure cool down with the pump off (S08). |
 | Sensor loss | `update()`, `updateRecharge()` | 30 s grace (`SENSOR_LOSS_GRACE_MS`). Dryers and purge hold, then stop. Recharge: pump off at once, then the failure cool down, entered once, advancing on time even with no sensors. |
 | Heater without a fresh chamber reading | `updateRecharge()` and `regulateHeater()` | Never newly enabled without a fresh (3 s) chamber sample. `regulateHeater()` may hold the PREVIOUS command for up to 6 s (`CHAMBER_RETRY_MS`) after the last valid sample. Off in every cool down and safety phase. |
 | Heat-up backstop | `RECHARGE_HEATUP_MAX_MS` | 1 h (previous agent's pick, not the user's). Now cools down before stopping (S14). |
@@ -461,8 +461,8 @@ All of this is in `docs/BENCH_TEST_CHECKLIST.md`, with pass criteria. Summary:
 2. **Display flashes:** cause identified (byte-swapped frames from PSRAM starvation); 14 MHz is a mitigation, not
    proven. Next steps: 12 MHz, then Arduino core 3.x (ESP-IDF 5) with RGB bounce buffers.
 3. **Warning message vs screen saver:** the fix has never been seen working.
-4. **Vent baseline** is a running average over the whole recharge; it drifted about 23,000 counts in the first
-   hour of one run. Margin is large (steps 70,000-130,000), but watch it late in a long run.
+4. **Vent reference (2026-11-25)** is the median of the pump-off readings from the 6 s before each pulse, not a running
+   average. Real pulse rises on 2026-11-25 were only 21,000-28,000 (earlier runs 70,000-130,000), so there is little margin.
 5. **Remote link is a MAC filter, not authentication.** ESP-NOW is unencrypted. Real authentication needs
    encrypted unicast or a signed counter in `LinkCommand` (all three boards rebuilt).
 6. The 1 h heat-up backstop is not the user's number. The desiccant amount (4 lb vs about 2 lb) is undecided.
@@ -501,7 +501,7 @@ stop message staying until OK; no display flashes in 50 page changes; then tag t
 - **Recharge must ignore the 40% saturation stop.** To-Engine reads near 100% in the regen exhaust by design. Re-adding saturation to recharge caused a false stop about 1 h in.
 - **Cool down keeps the valves open.** The pump pulses 10 s every 10 min and exhaust goes outside. Closing the valves during cool down would let hot wet air toward the engine. The cool down ends at 120 F on purpose (a hangar can be that hot in summer, so it must not wait for a lower temperature).
 - **Vent peak must be tracked every loop** while the pump is on. Judging only the last packet before the phase timer is wrong. `_ventPulsePeak` is reset after each judgment so each pulse stands alone.
-- **The vent baseline uses pump-OFF samples only**, averaged and re-learned each recharge. Do not take the baseline while the pump runs.
+- **The vent reference uses pump-OFF samples only** (median of the last 6 s before each pulse, `freezeVentReference()`). Never take it while the pump runs; a pulse with no steady reference does not run (S21 after 2 min).
 - **Readiness means a valid sample within 3 s** (`sampleFresh()` in `sensors.cpp`) for To-Engine, From-Engine and pressure. Requiring the latest packet's flag made one bad read look like a lost sensor (the host simulation showed a stalled recharge). The chamber keeps the stricter rule because it gates the heater.
 - **Never write NVS from a periodic path.** A flash write blocks the PSRAM bus and can glitch the RGB display. `run_state` writes only when a cycle starts or ends.
 - **Every pump pulse in a recharge needs a fresh vent reading** and is judged; a pulse with no pressure sample is not judged and does not count (`judgeVentPulse()`).

@@ -63,6 +63,8 @@ enum class StopReason : uint8_t {
     RECHARGE_MAX_TIME  = 17,
     CONTROLLER_RESTART = 18,  // Power loss during a cycle, or any watchdog / crash / brownout (shown at boot)
     HEATER_NO_RISE     = 19,  // Heater on for HEATER_RESPONSE_MS without the chamber rising
+    VENT_BLOCKED       = 20,  // Pump pulse raised the vent pressure far too much: line blocked or valve closed
+    VENT_UNSTABLE      = 21,  // Vent pressure never steady enough to take a pump-off reference
 };
 
 /* Stable upper-case name for a stop code, e.g. "VALVE_SUSPECT". */
@@ -115,11 +117,12 @@ public:
 
     /* Phase line for the main screen. Valid until the next call. */
     const char* statusText() const;
+    /* Reference (pump-off median just before the pump started) of the last judged pulse. */
     int32_t ventBaseline() const;
-    bool ventBaselineValid() const;
-    /* Step of the last judged pump pulse (peak minus baseline). False if none yet. */
+    bool ventBaselineValid() const;  // a pulse has been judged
+    /* Step of the last judged pump pulse (peak minus reference). False if none yet. */
     bool ventLastStep(int32_t &step) const;
-    uint32_t ventAmbientCount() const;
+    uint32_t ventAmbientCount() const;  // pump-off readings stored for the next reference
     uint16_t ventGoodPulses() const;
     uint16_t ventBadPulses() const;
     bool purgeRecent() const;
@@ -170,21 +173,25 @@ private:
     bool _rechargeTimedOut;         // Max run time reached: cool down and safety check, then stop
     bool _sensorLost;               // Required sensors are missing right now (grace timer running)
     uint32_t _sensorLostSinceMs;    // millis() when they went missing
-    int32_t _ventBaseline;          // Idle vent pressure, learned while the pump is off
-    bool _ventBaselineValid;
-    uint32_t _ventLearnStartMs;
+    int32_t _ventRef;               // Pump-off reference for the current pulse (median just before it)
+    bool _ventRefFrozen;            // _ventRef is taken for the pulse being prepared or run
+    uint32_t _ventRefWaitStartMs;   // When the pulse started waiting for a steady reference (0 = not waiting)
     uint16_t _ventGoodPulses;       // Pulses that showed the expected pressure step
     uint16_t _ventBadPulses;        // Pulses that showed no step (one stops the cycle)
-    // Ambient averaging (2026-11-20): running average of pump-OFF samples.
-    // Re-learned every recharge; drift is tracked between pulses.
-    double _ventAmbientSum;
-    uint32_t _ventAmbientCount;
-    uint32_t _ventLastSampleMs;
+    // Recent pump-OFF readings (2026-11-25), newest overwrite oldest. The median of the ones
+    // from the last VENT_REF_WINDOW_MS is the reference for the next pulse.
+    static const uint8_t VENT_REF_RING = 8;
+    uint8_t _ventRefCount;
+    uint8_t _ventRefHead;
+    uint32_t _ventRefLastStamp;     // sensors.pressureTimestamp of the last stored reading
+    int32_t _ventRefValue[VENT_REF_RING];
+    uint32_t _ventRefMs[VENT_REF_RING];
     int32_t _ventPulsePeak;         // Max raw seen during the current 10 s pulse
     uint16_t _ventPulseSamples;     // Pressure packets seen during the current pulse
     uint32_t _ventPulseLastStamp;   // sensors.pressureTimestamp of the last counted packet
     int32_t _ventLastStep;          // Step of the last judged pulse, for the Admin page
     bool _ventLastStepValid;
+    int32_t _ventLastRef;           // Reference of the last judged pulse, for the Admin page
     uint32_t _cooldownWindow;       // Which 10 min cool down window the pulse logic is in
     bool _cooldownPulseRun;         // This window's cool down pulse is running
     uint8_t _pulseCount;            // Recharge pulses completed, used for the first-pulse flush
@@ -242,10 +249,11 @@ private:
     void trackVentPulse();
     void resetVentPulse();
     bool ventCheckReady() const;
-    bool ventBaselineReady() const;
+    bool freezeVentReference();
+    bool beginVentPulse();
     bool ventSensorOk() const;
     const char* rechargeSensorBlockReason() const;
-    void learnVentBaseline();
+    void trackVentReference();
     uint32_t phaseElapsed() const;
     uint32_t phaseRemaining(uint32_t totalMs) const;
 };

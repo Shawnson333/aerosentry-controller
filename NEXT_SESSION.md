@@ -1,4 +1,4 @@
-# Where we left off (2026-11-24, late evening)
+# Where we left off (2026-11-25)
 
 Branch `v1-beta` (main is the same commit). Read this, then `README.md`, `docs/BENCH_TEST_CHECKLIST.md`
 (section 10 is new) and the last entries of `docs/PROJECT_NOTES.md`.
@@ -9,6 +9,17 @@ Branch `v1-beta` (main is the same commit). Read this, then `README.md`, `docs/B
 - Sensor node (Heltec, COM10, USB serial number = MAC F8:5B:1B:BF:3F:EC) runs packet v4. Controller and node must be
   flashed together whenever `common/sensor_packet.h` changes.
 - Nothing from the SHT40 heater work has been seen on a real recharge yet.
+
+## 2026-11-25 update: vent check redesigned (committed, NOT flashed)
+- Live recharge stopped twice with S09 (steps 10,185 and 14,649). Real pulse rises were only 21,000-28,000 counts
+  (earlier runs 70,000-130,000), and the average baseline made it look worse. Cause of the weak flow is unknown:
+  check valves, tubing, pump, pressure tap.
+- New: each pulse is judged against the median of the pump-off readings from the 6 s before it. No steady reference =
+  no pump (S21 after 2 min). Rise of 500,000+ = S20 VENT_BLOCKED (the user's finger over the tube gave 1.65 million).
+  Limit stays 20,000. Sim: 40 scenarios, 185 checks, 0 failures. The controller on COM4 still runs the OLD check;
+  flash it only when the user says so.
+- The recharge capture is `captures/recharge-20261124-2358.txt` (local file, may be committed). Heater burn-offs
+  during that run looked normal but were not reviewed in detail.
 
 ## Done today
 - Admin screen: raw probe readout and "Dry To" / "Dry From" buttons.

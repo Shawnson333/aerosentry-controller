@@ -811,6 +811,54 @@ static void testDisplayHoldsWhileHeating() {
     EXPECT(worst < 1.5f, "display moved %.1f points during a burn-off", worst);
 }
 
+/* ---------- vent pressure reference scenarios (2026-11-25) ---------- */
+
+static void testVentBlockedStopsS20() {
+    reset("Blocked vent line (pulse rises far too much): immediate stop S20");
+    Plant p; p.model = dryingModel;
+    p.flowStep = 800000;  // a finger over the tube, a closed valve
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, idle, 3UL * 3600000UL), "recharge did not stop");
+    EXPECT(logHas("Stop: S20 VENT_BLOCKED"), "no S20 stop");
+    EXPECT(logHas("BLOCKED"), "pulse not logged as BLOCKED");
+    EXPECT(logCount("Vent pressure raw") == 1, "%u pulses judged, expected 1",
+           (unsigned)logCount("Vent pressure raw"));
+    std::string m = takeMessage();
+    EXPECT(m.find("Code S20") != std::string::npos, "message lacks Code S20: %s", m.c_str());
+}
+
+static void testVentUnsteadyFailsClosed() {
+    reset("Vent pressure jumps around: no pump pulse is ever run, fails closed with S21");
+    Plant p; p.model = [](Plant& q) {
+        dryingModel(q);
+        q.ambientRaw = 4700000 + ((q.seq & 1) ? 30000 : 0);
+    };
+    EXPECT(startRecharge(p), "recharge start refused");
+    bool pumpRan = false;
+    const bool stopped = runUntil(p, [&] { if (pumpRelay()) pumpRan = true; return idle(); },
+                                  4UL * 3600000UL);
+    EXPECT(stopped, "never stopped");
+    EXPECT(!pumpRan, "the pump ran with no steady vent reference");
+    EXPECT(logHas("Recharge failure VENT_UNSTABLE"), "no vent failure");
+    EXPECT(logHas("Stop: S21 VENT_UNSTABLE"), "no S21 stop");
+}
+
+static void testIdleDriftDoesNotFakeFailure() {
+    reset("Idle vent pressure drifting up 24,000 a minute: weak but real pulses still pass");
+    Plant p; p.model = dryingModel;
+    p.flowStep = 30000;  // only 1.5x the limit, like the bench on 2026-11-25
+    p.model = [](Plant& q) {
+        dryingModel(q);
+        q.ambientRaw = 4690000 + (int32_t)((hostNowMs - 1000UL) / 1000UL) * 400;
+    };
+    EXPECT(startRecharge(p), "recharge start refused");
+    EXPECT(runUntil(p, [] { return logCount("OK good") >= 8 || idle(); }, 2UL * 3600000UL),
+           "fewer than 8 pulses in 2 h");
+    EXPECT(!logHas("NO FLOW"), "drift caused a NO FLOW");
+    EXPECT(!logHas("Stop: S09"), "drift stopped the recharge");
+    EXPECT(logHas("Vent reference"), "no reference was logged");
+}
+
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);  // show progress even if a scenario hangs
     for (int i = 1; i < argc; ++i) {
@@ -853,6 +901,9 @@ int main(int argc, char** argv) {
     testPostRechargeSeries();
     testIdleCondensationZone();
     testDisplayHoldsWhileHeating();
+    testVentBlockedStopsS20();
+    testVentUnsteadyFailsClosed();
+    testIdleDriftDoesNotFakeFailure();
     printf("\n%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

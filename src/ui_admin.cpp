@@ -148,19 +148,17 @@ void uiUpdateAdmin() {
         snprintf(pressure, sizeof(pressure), "%ld raw", (long)sensors.ventPressureRaw);
         int32_t lastStep = 0;
         if (stateMachine.ventBaselineValid() && stateMachine.ventLastStep(lastStep)) {
-            snprintf(pressureAvg, sizeof(pressureAvg), "avg %ld last step %ld %s",
+            snprintf(pressureAvg, sizeof(pressureAvg), "ref %ld last step %ld %s",
                      (long)stateMachine.ventBaseline(), (long)lastStep,
-                     lastStep >= VENT_PRESSURE_MIN_STEP ? "OK" : "NO FLOW");
-        } else if (stateMachine.ventBaselineValid()) {
-            snprintf(pressureAvg, sizeof(pressureAvg), "avg %ld, no pulse yet",
-                     (long)stateMachine.ventBaseline());
+                     lastStep >= VENT_PRESSURE_BLOCKED_STEP ? "BLOCKED"
+                     : (lastStep >= VENT_PRESSURE_MIN_STEP ? "OK" : "NO FLOW"));
         } else {
-            snprintf(pressureAvg, sizeof(pressureAvg), "avg learning n=%lu",
+            snprintf(pressureAvg, sizeof(pressureAvg), "no pulse yet, %lu pump-off readings",
                      (unsigned long)stateMachine.ventAmbientCount());
         }
     } else {
         snprintf(pressure, sizeof(pressure), "no sensor");
-        snprintf(pressureAvg, sizeof(pressureAvg), "avg n/a");
+        snprintf(pressureAvg, sizeof(pressureAvg), "n/a");
     }
 
     // Last stops, newest first: "S09 VALVE_SUSPECT, Recharge, 11/24 14:02".
@@ -190,7 +188,7 @@ void uiUpdateAdmin() {
              "Chip        %s\n"
              "Relays      %s\n"
              "Vent press  %s\n"
-             "Vent avg    %s\n"
+             "Vent ref    %s\n"
              "Pulses      good %u bad %u\n"
              "Last purge  %s\n"
              "Last stops  %s\n"

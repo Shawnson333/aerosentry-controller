@@ -27,7 +27,7 @@ was cooled first".
 | S06 | FROM_ENGINE_LOST | No valid From-Engine reading for 30 s (Auto dryer only) | Stop. | From-Engine probe and cable. |
 | S07 | CHAMBER_LOST | No valid chamber temperature for 30 s (Recharge) | Failure cool down. The heater is never newly turned on without a fresh reading and is off within 6 s of the last good one (`CHAMBER_RETRY_MS`). | Thermistor, 10k resistor, cable. |
 | S08 | VENT_SENSOR_LOST | No vent pressure reading for 30 s during a recharge | Failure cool down with the pump OFF: the valve position cannot be confirmed. A recharge will not start without it. | HX711 module (3.3 V), DOUT 48 / SCK 47, the 2.5 mm tube. |
-| S09 | VALVE_SUSPECT | A recharge, cool down or safety pump pulse did not raise the vent pressure 20,000 counts over the ambient average | Immediate stop: pump, heater and valves off. Moisture may have reached the engine. | Both valves, their 12 V supply, the vent line. |
+| S09 | VALVE_SUSPECT | A recharge, cool down or safety pump pulse did not raise the vent pressure 20,000 counts over the pump-off reading taken just before it (median of the last 6 s) | Immediate stop: pump, heater and valves off. Moisture may have reached the engine. | Both valves, their 12 V supply, the vent line. |
 | S10 | VALVE_NO_CURRENT | Valve coil current below 150 mV while energized | Immediate stop. Disabled until the shunt is wired (`VALVE_CURRENT_CHECK_ENABLED`). | Valve wiring and 12 V. |
 | S11 | THERMAL_CHAMBER | Chamber above 255 F | Immediate stop, everything off, starts refused until it cools. Also while idle. | Heater control, thermistor placement. The 266 F fuse is the hardware backstop. |
 | S12 | THERMAL_TO_PROBE | To-Engine probe above 250 F | Same as S11. | Where the probe is mounted. |
@@ -37,6 +37,8 @@ was cooled first".
 | S16 | RECHARGE_COMPLETE | Three dry samples, cool down, two safety samples at or below 15% | Normal end. With a dryer cycle waiting (Auto Recharge) it resumes that cycle instead. | |
 | S17 | RECHARGE_MAX_TIME | 6 h at temperature without three dry samples; the cool down and safety check then passed | Normal end. | The beads may not be fully dry. |
 | S19 | HEATER_NO_RISE | In a recharge, 4 min of heater-on time without the chamber rising 10 F (or reaching 245 F). Works during heat-up and the hold. | Failure cool down, then stop. A working heater rose 53 F in 2 min from cold on the bench. | Heater mat, its fuse, its relay (K3), the thermistor (a loose thermistor reads low and steady). |
+| S20 | VENT_BLOCKED | A recharge, cool down or safety pump pulse raised the vent pressure 500,000 counts or more over the reference (a finger over the tube gave 1.65 million) | Immediate stop: pump, heater and valves off. The line is blocked or a valve is closed and the pump is dead-heading. | Vent line and outlet for a blockage, pinched hose, closed valve. |
+| S21 | VENT_UNSTABLE | In a recharge, the vent pressure stayed too unsteady (readings 8,000 counts apart, or fewer than 3 in 6 s) for 2 min before a pulse | No pump pulse is run. Failure cool down, then stop. | Pressure module, its tube and cable, draughts or a moving vent line. |
 | S18 | CONTROLLER_RESTART | At boot: power was lost during a cycle, or the last reset was a watchdog, crash or brownout (even when idle) | Everything was turned off at boot. The message gives the reset cause. | Power supply, then the serial log around the reset. |
 
 Starts that are refused (missing sensor, thermal limit, relay test running, remote Recharge) are not stops.

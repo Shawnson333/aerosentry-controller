@@ -182,9 +182,15 @@
    pressure reading (S08 if it goes missing). Cool down and safety pulses
    are judged too. */
 #define VENT_PRESSURE_CHECK_ENABLED  1
-#define VENT_PRESSURE_MIN_STEP      20000   // Raw counts above the ambient average
-#define VENT_PRESSURE_LEARN_MS      30000UL // Baseline learning window at start
-#define VENT_PRESSURE_AMBIENT_SAMPLE_MS 30000UL // Take an ambient sample every 30 s while pump OFF
+#define VENT_PRESSURE_MIN_STEP      20000   // Raw counts a pulse must rise above the pump-off reference just before it
+#define VENT_PRESSURE_BLOCKED_STEP  500000  // A rise this big means the vent line is blocked (S20), not flowing
+/* Reference taken before every pump pulse (2026-11-25): the median of the pump-off readings from the last
+   VENT_REF_WINDOW_MS. It replaces the running average, which drifted away from the real idle level as the
+   chamber heated and made good pulses look short. */
+#define VENT_REF_WINDOW_MS          6000UL  // Use pump-off readings this recent
+#define VENT_REF_MIN_SAMPLES        3       // ...and need at least this many
+#define VENT_REF_MAX_SPREAD         8000    // ...that agree within this many counts, or the pulse waits
+#define VENT_REF_WAIT_MAX_MS        120000UL // Unsteady this long: fail closed (S21)
 #define LOG_INTERVAL_MS         30000UL    // Log every sensor while a cycle runs
 #define PURGE_RECENT_MS         3600000UL  // Dryer warns if no qualified purge in this window
 #define PURGE_QUALIFY_MS        60000UL    // Pump must run this long before a purge counts

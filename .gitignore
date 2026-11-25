@@ -3,3 +3,6 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# live serial captures are large and still growing; commit a finished one on purpose
+captures/recharge-*.txt
